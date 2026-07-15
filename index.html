@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Endless Depths</title>
+<link rel="stylesheet" href="web/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128481;</text></svg>">
+</head>
+<body>
+<div id="app">
+
+  <!-- Title screen -->
+  <div id="title-screen" class="screen">
+    <h1 id="game-title">ENDLESS DEPTHS</h1>
+    <p class="subtitle">An infinite dungeon roguelike</p>
+    <canvas id="title-hero" width="128" height="128"></canvas>
+    <div id="loading-status">Loading Python engine&hellip;</div>
+    <div id="title-buttons" class="hidden">
+      <button id="btn-new">New Game (N)</button>
+      <button id="btn-continue" disabled>Continue (C)</button>
+    </div>
+    <pre id="title-highscores"></pre>
+  </div>
+
+  <!-- Play screen -->
+  <div id="play-screen" class="screen hidden">
+    <div id="play-row">
+      <div id="canvas-wrap">
+        <canvas id="game-canvas" width="832" height="512"></canvas>
+        <div id="fx-layer"></div>
+      </div>
+      <div id="side-panel">
+        <h2>ENDLESS DEPTHS</h2>
+        <div id="stat-depth">Depth: 1</div>
+        <div id="stat-level">Level: 1</div>
+        <div class="bar"><div id="hp-fill" class="bar-fill hp"></div><span id="hp-text"></span></div>
+        <div class="bar thin"><div id="xp-fill" class="bar-fill xp"></div></div>
+        <div id="stat-status">Status: Healthy</div>
+        <div id="stat-attack">Attack: 0</div>
+        <div id="stat-defense">Defense: 0</div>
+        <div id="stat-gold">Gold: 0</div>
+        <hr>
+        <div id="stat-weapon">Weapon: (none)</div>
+        <div id="stat-armor">Armor: (none)</div>
+        <div id="stat-accessory">Accessory: (none)</div>
+        <hr>
+        <div id="stat-kills">Kills: 0&nbsp;&nbsp;Turns: 0</div>
+        <div class="minimap-label">Map</div>
+        <canvas id="minimap" width="240" height="80"></canvas>
+      </div>
+    </div>
+    <div id="log"></div>
+    <div id="footer">Move: arrows/WASD &nbsp;|&nbsp; E: inventory &nbsp;|&nbsp; .: wait &nbsp;|&nbsp; M: sound &nbsp;|&nbsp; walk into stairs to descend</div>
+  </div>
+
+  <!-- Inventory overlay -->
+  <div id="inventory-overlay" class="overlay hidden">
+    <div class="overlay-box">
+      <div class="overlay-header"><h2>Inventory</h2><span id="inv-gold" class="gold-label">Gold: 0</span></div>
+      <div id="inv-equipped" class="equipped-line"></div>
+      <div class="list-details">
+        <ul id="inv-list" class="item-list"></ul>
+        <div class="details"><h3 id="inv-detail-name">Nothing here</h3><pre id="inv-detail-body"></pre></div>
+      </div>
+      <div class="overlay-buttons">
+        <button id="inv-action">Use / Equip (Enter)</button>
+        <button id="inv-drop">Drop (D)</button>
+        <button id="inv-close">Close (Esc)</button>
+      </div>
+      <div class="hint">Click: view &nbsp; Double-click/Enter: use or equip &nbsp; D: drop &nbsp; Esc: close</div>
+    </div>
+  </div>
+
+  <!-- Shop overlay -->
+  <div id="shop-overlay" class="overlay hidden">
+    <div class="overlay-box">
+      <div class="overlay-header"><h2>Shop</h2><span id="shop-gold" class="gold-label">Gold: 0</span></div>
+      <div class="tabs">
+        <span id="tab-buy" class="tab active">Buy</span>
+        <span id="tab-sell" class="tab">Sell</span>
+      </div>
+      <div class="list-details">
+        <ul id="shop-list" class="item-list"></ul>
+        <div class="details"><h3 id="shop-detail-name">Nothing here</h3><pre id="shop-detail-body"></pre></div>
+      </div>
+      <div class="overlay-buttons">
+        <button id="shop-action">Buy (Enter)</button>
+        <button id="shop-switch">Switch (Tab)</button>
+        <button id="shop-close">Leave Shop (Esc)</button>
+      </div>
+      <div class="hint">Click: view &nbsp; Double-click/Enter: buy or sell &nbsp; Tab: switch pane &nbsp; Esc: leave</div>
+    </div>
+  </div>
+
+  <!-- Game over screen -->
+  <div id="gameover-screen" class="screen hidden">
+    <h1 class="died">YOU DIED</h1>
+    <pre id="gameover-stats"></pre>
+    <pre id="gameover-highscores"></pre>
+    <button id="btn-title">Return to Title</button>
+  </div>
+
+</div>
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
+<script src="web/main.js"></script>
+</body>
+</html>

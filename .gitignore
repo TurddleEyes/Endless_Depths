@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+
+# Generated audio cache (rebuilt automatically on first launch)
+assets/
+
+# Personal local data - never commit saves or scores
+save.json
+settings.json
+highscores.json
