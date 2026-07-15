@@ -19,11 +19,12 @@ const PY_FILES = [
   "engine/__init__.py", "engine/constants.py", "engine/combat.py",
   "engine/dungeon.py", "engine/entities.py", "engine/fov.py",
   "engine/items.py", "engine/save.py", "engine/shop.py", "engine/world.py",
-  "ui/__init__.py", "ui/spritedata.py", "ui/iteminfo.py", "ui/audio.py",
+  "ui/__init__.py", "ui/spritedata.py", "ui/iteminfo.py", "ui/audio.py", "ui/lore.py",
 ];
 
 const LS_SAVE = "endless_depths_save";
 const LS_SCORES = "endless_depths_scores";
+const LS_SEEN_LORE = "endless_depths_seen_lore";
 const LS_MUTED = "endless_depths_muted";
 
 let bridge = null;
@@ -71,6 +72,14 @@ async function boot() {
   $("title-buttons").classList.remove("hidden");
   $("btn-continue").disabled = !localStorage.getItem(LS_SAVE);
   renderTitleHighscores();
+
+  lore.data = JSON.parse(bridge.lore_json());
+  $("lore-title").textContent = lore.data.title;
+  if (!localStorage.getItem(LS_SEEN_LORE)) {
+    showLore(true);
+  } else {
+    toTitle();
+  }
 
   audio.init();
 }
@@ -184,7 +193,7 @@ const audio = {
 
 /* ------------------------------------------------------------ screens */
 function showScreen(name) {
-  for (const id of ["title-screen", "play-screen", "gameover-screen"]) {
+  for (const id of ["title-screen", "lore-screen", "play-screen", "gameover-screen"]) {
     $(id).classList.toggle("hidden", id !== name);
   }
   $("inventory-overlay").classList.add("hidden");
@@ -197,6 +206,39 @@ function toTitle() {
   $("btn-continue").disabled = !localStorage.getItem(LS_SAVE);
   renderTitleHighscores();
   audio.playMusic("depths");
+}
+
+/* ------------------------------------------------------------------ lore */
+const lore = { data: null, page: 0 };
+
+function showLore(firstTime) {
+  mode = "lore";
+  lore.firstTime = firstTime;
+  lore.page = 0;
+  renderLorePage();
+  showScreen("lore-screen");
+}
+
+function renderLorePage() {
+  const pages = lore.data.pages;
+  $("lore-text").textContent = pages[lore.page];
+  $("lore-page-label").textContent = `Page ${lore.page + 1} / ${pages.length}`;
+  $("lore-next").textContent = lore.page === pages.length - 1 ? "Begin >" : "Next >";
+}
+
+function loreStep(delta) {
+  const pages = lore.data.pages;
+  if (delta > 0 && lore.page === pages.length - 1) {
+    finishLore();
+    return;
+  }
+  lore.page = Math.max(0, Math.min(lore.page + delta, pages.length - 1));
+  renderLorePage();
+}
+
+function finishLore() {
+  localStorage.setItem(LS_SEEN_LORE, "1");
+  toTitle();
 }
 
 function loadScores() {
@@ -701,6 +743,12 @@ document.addEventListener("keydown", (e) => {
     case "title":
       if (e.key === "n" || e.key === "N" || e.key === "Enter") startNewGame();
       else if ((e.key === "c" || e.key === "C") && !$("btn-continue").disabled) continueGame();
+      else if (e.key === "l" || e.key === "L") showLore(false);
+      break;
+    case "lore":
+      if (e.key === "ArrowRight" || e.key === "Enter" || e.key === " ") loreStep(1);
+      else if (e.key === "ArrowLeft" || e.key === "Backspace") loreStep(-1);
+      else if (e.key === "Escape") finishLore();
       break;
     case "play":
       if (e.key === "e" || e.key === "E") openInventory();
@@ -769,6 +817,9 @@ $("touch-full").addEventListener("click", toggleFullscreen);
 $("btn-new").addEventListener("click", startNewGame);
 $("btn-continue").addEventListener("click", continueGame);
 $("btn-title").addEventListener("click", toTitle);
+$("btn-lore").addEventListener("click", () => showLore(false));
+$("lore-next").addEventListener("click", () => loreStep(1));
+$("lore-back").addEventListener("click", () => loreStep(-1));
 $("inv-action").addEventListener("click", inventoryActivate);
 $("inv-drop").addEventListener("click", inventoryDrop);
 $("inv-close").addEventListener("click", closeInventory);

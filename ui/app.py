@@ -19,6 +19,7 @@ from . import sprites as sprite_defs
 from .audio import AudioManager, track_for_depth
 from .iteminfo import RARITY_COLORS, describe_item, sell_price
 from .widgets import ItemListPanel
+from . import lore as lore_data
 
 MOVE_KEYS = {
     "Up": (0, -1), "w": (0, -1), "W": (0, -1), "k": (0, -1),
@@ -68,13 +69,20 @@ class App(tk.Tk):
 
         self.bind("<Key>", self._on_key)
 
+        self._lore_page = 0
+        self._lore_return_to = "title"
+
         self._build_title_screen()
+        self._build_lore_screen()
         self._build_play_screen()
         self._build_inventory_overlay()
         self._build_shop_overlay()
         self._build_gameover_screen()
 
-        self._show_title()
+        if self.settings.get("seen_lore"):
+            self._show_title()
+        else:
+            self._show_lore(first_time=True)
         self.after(400, self._audio_tick)
         self.after(500, self._title_tick)
 
@@ -103,6 +111,8 @@ class App(tk.Tk):
         self.continue_button = tk.Button(self.title_frame, text="Continue (C)",
                                            command=self._continue_game, **btn_style)
         self.continue_button.pack(pady=5)
+        tk.Button(self.title_frame, text="Lore (L)", command=lambda: self._show_lore(first_time=False),
+                   **btn_style).pack(pady=5)
         tk.Button(self.title_frame, text="Quit", command=self._on_close,
                    **btn_style).pack(pady=5)
 
@@ -113,6 +123,63 @@ class App(tk.Tk):
         self.title_status_label = tk.Label(self.title_frame, text="", font=T.UI_FONT,
                                              bg=T.BG, fg=T.TEXT_BAD)
         self.title_status_label.pack(pady=(8, 0))
+
+    def _build_lore_screen(self):
+        self.lore_frame = tk.Frame(self, bg=T.BG, width=860, height=640)
+        self.lore_frame.pack_propagate(False)
+
+        tk.Label(self.lore_frame, text=lore_data.TITLE, font=T.HEADER_FONT,
+                  bg=T.BG, fg=T.ACCENT).pack(pady=(50, 20))
+
+        self.lore_text_label = tk.Label(self.lore_frame, text="", font=T.UI_FONT,
+                                          bg=T.BG, fg=T.TEXT_MAIN, justify="left",
+                                          wraplength=620, height=10)
+        self.lore_text_label.pack(pady=(0, 16))
+
+        self.lore_page_label = tk.Label(self.lore_frame, text="", font=("Courier", 9),
+                                          bg=T.BG, fg=T.TEXT_DIM)
+        self.lore_page_label.pack(pady=(0, 14))
+
+        btn_style = dict(font=T.UI_FONT_BOLD, width=14, bg=T.PANEL_BG, fg=T.TEXT_MAIN,
+                          activebackground=T.ACCENT, activeforeground=T.BG,
+                          relief="flat", bd=0, highlightthickness=1,
+                          highlightbackground=T.PANEL_BORDER)
+        nav_row = tk.Frame(self.lore_frame, bg=T.BG)
+        nav_row.pack()
+        tk.Button(nav_row, text="< Back", command=lambda: self._lore_step(-1),
+                   **btn_style).pack(side="left", padx=6)
+        self.lore_next_button = tk.Button(nav_row, text="Next >",
+                                            command=lambda: self._lore_step(1), **btn_style)
+        self.lore_next_button.pack(side="left", padx=6)
+
+    def _show_lore(self, first_time: bool):
+        self._hide_all()
+        self.mode = "lore"
+        self._lore_return_to = "first_launch" if first_time else "title"
+        self._lore_page = 0
+        self._render_lore_page()
+        self.lore_frame.pack(expand=True)
+
+    def _render_lore_page(self):
+        n = len(lore_data.PAGES)
+        self.lore_text_label.configure(text=lore_data.PAGES[self._lore_page])
+        self.lore_page_label.configure(text=f"Page {self._lore_page + 1} / {n}")
+        self.lore_next_button.configure(
+            text="Begin >" if self._lore_page == n - 1 else "Next >")
+
+    def _lore_step(self, delta: int):
+        n = len(lore_data.PAGES)
+        if delta > 0 and self._lore_page == n - 1:
+            self._finish_lore()
+            return
+        self._lore_page = max(0, min(self._lore_page + delta, n - 1))
+        self._render_lore_page()
+
+    def _finish_lore(self):
+        if not self.settings.get("seen_lore"):
+            self.settings["seen_lore"] = True
+            save_module.save_settings(self.settings)
+        self._show_title()
 
     def _build_play_screen(self):
         self.play_frame = tk.Frame(self, bg=T.BG)
@@ -292,7 +359,7 @@ class App(tk.Tk):
     # Screen switching
     # ------------------------------------------------------------------
     def _hide_all(self):
-        for frame in (self.title_frame, self.play_frame, self.gameover_frame):
+        for frame in (self.title_frame, self.lore_frame, self.play_frame, self.gameover_frame):
             frame.pack_forget()
         self.inventory_frame.place_forget()
         self.shop_frame.place_forget()
@@ -429,6 +496,16 @@ class App(tk.Tk):
                 self._start_new_game()
             elif event.keysym in ("c", "C") and str(self.continue_button["state"]) == "normal":
                 self._continue_game()
+            elif event.keysym in ("l", "L"):
+                self._show_lore(first_time=False)
+        elif self.mode == "lore":
+            ks = event.keysym
+            if ks in ("Right", "Return", "space"):
+                self._lore_step(1)
+            elif ks in ("Left", "BackSpace"):
+                self._lore_step(-1)
+            elif ks == "Escape":
+                self._finish_lore()
         elif self.mode == "gameover":
             self._show_title()
 

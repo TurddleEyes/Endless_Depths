@@ -56,6 +56,17 @@ button {
 button:hover:not(:disabled) { background: var(--accent); color: var(--bg); }
 button:disabled { color: var(--dim); cursor: default; }
 
+.lore-text {
+  max-width: 620px;
+  min-height: 200px;
+  color: var(--text);
+  line-height: 1.6;
+  font-size: 0.95em;
+  white-space: pre-wrap;
+  text-align: left;
+  margin: 10px 0 6px;
+}
+
 #title-highscores, #gameover-highscores, #gameover-stats {
   color: var(--dim);
   margin-top: 22px;

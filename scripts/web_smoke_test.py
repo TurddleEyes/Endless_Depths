@@ -116,6 +116,13 @@ def test_save_load_roundtrip():
     print("OK: save/load round-trips through JSON; corrupt saves are rejected")
 
 
+def test_lore():
+    data = json.loads(webbridge.lore_json())
+    assert data["title"]
+    assert len(data["pages"]) >= 3
+    print(f"OK: lore_json exposes {len(data['pages'])} pages")
+
+
 def test_audio_synth():
     names = json.loads(webbridge.sfx_names_json())
     assert "hit" in names["sfx"] and "depths" in names["music"]
@@ -133,5 +140,6 @@ if __name__ == "__main__":
     test_game_flow()
     test_inventory_and_shop()
     test_save_load_roundtrip()
+    test_lore()
     test_audio_synth()
     print("\nAll web-bridge smoke tests passed.")

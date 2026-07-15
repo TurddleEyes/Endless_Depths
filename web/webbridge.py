@@ -14,6 +14,7 @@ from engine.world import GameState
 from ui import spritedata as S
 from ui.iteminfo import RARITY_COLORS, describe_item, sell_price
 from ui import audio as audio_synth
+from ui import lore as lore_data
 
 # Halve the sample rate in the browser: WASM synthesis is slower than
 # native and the retro chiptune sound survives 11 kHz just fine.
@@ -42,6 +43,10 @@ def hero_sprite_json(weapon, armor, accessory, poisoned, rarity) -> str:
     grid, palette = S.hero_grid_and_palette(weapon, armor, bool(accessory),
                                              bool(poisoned), rarity)
     return json.dumps({"grid": grid, "palette": palette})
+
+
+def lore_json() -> str:
+    return json.dumps({"title": lore_data.TITLE, "pages": lore_data.PAGES})
 
 
 def sfx_names_json() -> str:
