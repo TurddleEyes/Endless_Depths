@@ -86,7 +86,10 @@ def generate_item(depth: int, rng, quality_bonus: float = 1.0) -> Item:
     )[0]
     rarity_name, mult, _weight, color = _pick_rarity(rng, depth)
     mult *= quality_bonus
-    scale = 1 + (depth - 1) * 0.18
+    # Value/gold use a soft-capped scale (see constants.gold_scale) so
+    # currency doesn't spiral into absurd numbers at extreme depth, even
+    # though combat-stat bonuses below keep scaling linearly for challenge.
+    scale = C.gold_scale(depth)
 
     if category == "weapon":
         name = rng.choice(_WEAPON_NAMES)
@@ -126,8 +129,10 @@ def generate_item(depth: int, rng, quality_bonus: float = 1.0) -> Item:
         magnitude = round(base_mag * (1 + depth * 0.15) * mult) if effect == "fireball" else base_mag
         return Item(_new_id(), name, category, "?", rarity_name, value, effect=effect, magnitude=magnitude)
 
-    # gold pile
-    amount = max(1, round(rng.randint(5, 15) * scale * mult))
+    # Gold pile - deliberately not multiplied by rarity: currency isn't
+    # "legendary", it's just an amount, and stacking the rarity multiplier
+    # on top of the depth scale was a big part of the runaway-gold problem.
+    amount = max(1, round(rng.randint(5, 15) * scale))
     return Item(_new_id(), "Gold", "gold", "*", rarity_name, amount, quantity=amount)
 
 

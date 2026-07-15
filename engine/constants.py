@@ -62,6 +62,21 @@ CATEGORY_COLORS = {
 MONSTER_COLOR = "#ff6b6b"
 BOSS_COLOR = "#ff2e2e"
 
+# --- Gold/economy scaling ------------------------------------------------
+# Combat stats (hp/attack/defense/xp) scale linearly forever - that's what
+# keeps an infinite dungeon meaningfully harder floor after floor. Currency
+# is different: unbounded gold growth just produces silly numbers late-game
+# without adding anything to the challenge, so it uses a soft cap that
+# approaches (1 + GOLD_SCALE_MAX)x baseline instead of growing forever.
+GOLD_SCALE_MAX = 4.0
+GOLD_SCALE_HALF_DEPTH = 8
+
+
+def gold_scale(depth: int) -> float:
+    d = max(1, depth)
+    return 1 + GOLD_SCALE_MAX * (1 - 1 / (1 + (d - 1) / GOLD_SCALE_HALF_DEPTH))
+
+
 # Player base stats
 PLAYER_BASE_HP = 20
 PLAYER_BASE_ATTACK = 4

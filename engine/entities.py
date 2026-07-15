@@ -143,7 +143,9 @@ def generate_monster(depth: int, rng, x: int, y: int, force_boss: bool = False) 
     attack = round(attack * scale)
     defense = round(defense * (1 + (depth - 1) * 0.12))
     xp = round(xp * scale)
-    gold = round(gold * scale)
+    # Gold uses the soft-capped economy scale, not the uncapped combat
+    # scale above - otherwise deep-floor gold rewards spiral out of control.
+    gold = round(gold * C.gold_scale(depth))
 
     if force_boss:
         hp = round(hp * 2.5)
