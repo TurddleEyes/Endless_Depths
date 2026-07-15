@@ -1,8 +1,11 @@
 # Endless Depths
 
-An infinite dungeon roguelike with procedural pixel-art graphics, chiptune
-music, and synthesized sound effects — written in pure Python with zero
-external dependencies. Playable two ways:
+My infinite dungeon roguelike — procedural pixel-art graphics, chiptune
+music, and sound effects all generated from code, written in pure Python
+with zero external dependencies. Everything here is hand-rolled: the
+engine, the pixel art, the music synthesizer, the works.
+
+Playable two ways:
 
 - **In the browser** (GitHub Pages + [Pyodide](https://pyodide.org)) — the
   same Python engine runs as WebAssembly
