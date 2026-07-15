@@ -16,7 +16,10 @@ from datetime import datetime
 from . import constants as C
 from .world import GameState
 
-REPLAY_VERSION = 1
+# Bump whenever engine generation/logic changes in a way that would make
+# previously recorded replays play back differently - old replays are then
+# cleanly rejected instead of silently desyncing.
+REPLAY_VERSION = 2
 
 
 def build_replay_dict(state: GameState, elapsed_seconds: float) -> dict:

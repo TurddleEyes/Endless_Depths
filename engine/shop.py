@@ -6,9 +6,25 @@ from .items import Item, generate_item
 SELL_RATIO = 0.5
 SHOP_QUALITY_BONUS = 1.15
 
+# Shop prices climb linearly with depth even though gold income is
+# soft-capped - keeping purchases a meaningful decision at any depth
+# instead of trivial once income outpaces the old flat prices.
+PRICE_DEPTH_MARKUP = 0.3
+
+
+def shop_price_multiplier(depth: int) -> float:
+    return 1 + max(0, depth) * PRICE_DEPTH_MARKUP
+
 
 def generate_shop_inventory(depth: int, rng, n_items: int = 6) -> list:
-    return [generate_item(depth, rng, quality_bonus=SHOP_QUALITY_BONUS) for _ in range(n_items)]
+    stock = []
+    for _ in range(n_items):
+        item = generate_item(depth, rng, quality_bonus=SHOP_QUALITY_BONUS)
+        while item.category == "gold":  # merchants don't sell raw gold piles
+            item = generate_item(depth, rng, quality_bonus=SHOP_QUALITY_BONUS)
+        item.value = max(1, round(item.value * shop_price_multiplier(depth)))
+        stock.append(item)
+    return stock
 
 
 def buy(player, shop_stock: list, item: Item) -> tuple:

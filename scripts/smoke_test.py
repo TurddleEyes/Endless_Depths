@@ -150,6 +150,7 @@ def test_full_playthrough_simulation():
     max_depth_seen = state.depth
     safety_iterations = 30000
     floors_descended = 0
+    turns_at_floor_start = 0
 
     def nearest_item_target(floor, pos):
         if not floor.ground_items:
@@ -197,7 +198,13 @@ def test_full_playthrough_simulation():
                 continue
 
         player_pos = (state.player.x, state.player.y)
-        target = nearest_item_target(state.floor, player_pos) or state.floor.stairs_pos
+        # After lingering too long on one floor (e.g. oscillating between
+        # equidistant loot), stop looting and head straight for the stairs.
+        turns_on_floor = state.player.turns - turns_at_floor_start
+        if turns_on_floor > 300:
+            target = state.floor.stairs_pos
+        else:
+            target = nearest_item_target(state.floor, player_pos) or state.floor.stairs_pos
         # Give bosses a wide berth, like a sane player would - fight regular
         # monsters but only engage a boss if there's no way around it.
         boss_zone = set()
@@ -217,6 +224,7 @@ def test_full_playthrough_simulation():
         state.try_move_player(dx, dy)
         if state.depth != depth_before:
             floors_descended += 1
+            turns_at_floor_start = state.player.turns
         max_depth_seen = max(max_depth_seen, state.depth)
 
         if max_depth_seen >= 30:
@@ -259,6 +267,28 @@ def test_save_load_roundtrip(tmp_path_override):
             pass
         save_module.SAVE_PATH = original_save_path
     print("OK: save/load round-trip preserves player state")
+
+
+def test_shop_prices_scale_with_depth():
+    import random
+    from engine.shop import generate_shop_inventory
+
+    rng = random.Random(31)
+    shallow = [i.value for i in generate_shop_inventory(3, rng, n_items=40)]
+    deep = [i.value for i in generate_shop_inventory(30, rng, n_items=40)]
+    avg_shallow = sum(shallow) / len(shallow)
+    avg_deep = sum(deep) / len(deep)
+    assert avg_deep > avg_shallow * 3, \
+        f"deep shops should charge much more: shallow={avg_shallow:.0f} deep={avg_deep:.0f}"
+    # Loot the player FINDS keeps its soft-capped value, so income stays
+    # bounded while prices rise - that tension is the point.
+    found = [generate_item(30, rng).value for _ in range(60)]
+    assert avg_deep > (sum(found) / len(found)) * 2
+    # Merchants never stock raw gold piles.
+    stock = generate_shop_inventory(9, rng, n_items=60)
+    assert all(i.category != "gold" for i in stock)
+    print(f"OK: shop prices scale with depth (floor3 avg {avg_shallow:.0f}g, "
+          f"floor30 avg {avg_deep:.0f}g); no gold piles in stock")
 
 
 def test_traps():
@@ -570,6 +600,7 @@ if __name__ == "__main__":
     test_item_scaling()
     test_monster_scaling()
     test_shop_transactions()
+    test_shop_prices_scale_with_depth()
     test_traps()
     test_poison_status()
     test_fireball_scroll()
