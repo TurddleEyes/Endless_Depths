@@ -313,10 +313,11 @@ function speedrunScoreLines(runs, count) {
 
 function renderTitleHighscores() {
   const runs = loadScores();
+  const trim = (text) => (text && text.length > 24 ? text.slice(0, 23) + "…" : text || "");
   $("title-highscores").textContent = runs.length
     ? "Top runs:\n" + runs.slice(0, 5).map((r) =>
         `  Floor ${String(r.depth_reached).padStart(3)}  Lv ${String(r.level).padEnd(3)} ` +
-        `Gold ${String(r.gold).padEnd(5)} - ${r.cause}`).join("\n")
+        `Gold ${String(r.gold).padEnd(5)} ${trim(r.cause)}`).join("\n")
     : "No runs recorded yet - descend and see how far you get.";
   const speedruns = loadSpeedrunScores();
   $("title-speedrun-scores").textContent = speedruns.length

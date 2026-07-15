@@ -329,9 +329,32 @@ h1.victory { color: var(--warn); }
 /* ---- phone layout ---- */
 @media (max-width: 760px) {
   #app { padding: 4px; width: 100vw; }
-  .screen { min-width: 0; width: 100%; padding: 18px 6px; }
+  .screen { min-width: 0; width: 100%; padding: 12px 6px; }
   h1 { font-size: 1.7em; letter-spacing: 2px; }
   button { min-width: 180px; }
+
+  #title-hero { width: 96px; height: 96px; }
+  .screen h1 { margin-top: 4px; }
+  #title-scores-row {
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+  }
+  #title-highscores, #title-speedrun-scores {
+    font-size: 0.72em;
+    max-width: 96vw;
+    overflow-x: auto;
+    margin-top: 8px;
+  }
+  #gameover-stats, #gameover-highscores, #victory-stats, #victory-scores {
+    font-size: 0.85em;
+    max-width: 96vw;
+    overflow-x: auto;
+  }
+  .lore-text { font-size: 0.85em; max-width: 92vw; min-height: 0; }
+  #seed-input { width: 110px; }
+  #replay-code-input { width: 92vw; }
 
   #play-screen { padding: 2px; }
   #play-row { flex-direction: column; }
