@@ -18,7 +18,8 @@ let VIEW_ROWS = IS_SMALL ? 13 : 16;
 const PY_FILES = [
   "engine/__init__.py", "engine/constants.py", "engine/combat.py",
   "engine/dungeon.py", "engine/entities.py", "engine/fov.py",
-  "engine/items.py", "engine/save.py", "engine/shop.py", "engine/world.py",
+  "engine/items.py", "engine/replay.py", "engine/save.py", "engine/shop.py",
+  "engine/world.py",
   "ui/__init__.py", "ui/spritedata.py", "ui/iteminfo.py", "ui/audio.py", "ui/lore.py",
 ];
 

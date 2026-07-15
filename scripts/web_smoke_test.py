@@ -166,6 +166,29 @@ def test_replay_round_trip_through_bridge():
     print(f"OK: bridge replay round-trip reproduces the victory in {steps} steps")
 
 
+def test_all_engine_modules_shipped_to_browser():
+    """Every engine/*.py on disk must appear in main.js's PY_FILES fetch
+    list, or the Pyodide build breaks with an ImportError while the
+    filesystem-based tests keep passing (this exact bug shipped once)."""
+    import re
+    game_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(game_dir, "web", "main.js"), encoding="utf-8") as f:
+        source = f.read()
+    match = re.search(r"const PY_FILES = \[(.*?)\];", source, re.DOTALL)
+    assert match, "could not find PY_FILES in web/main.js"
+    listed = set(re.findall(r'"([^"]+\.py)"', match.group(1)))
+
+    on_disk = {f"engine/{name}" for name in os.listdir(os.path.join(game_dir, "engine"))
+               if name.endswith(".py")}
+    missing = on_disk - listed
+    assert not missing, f"engine modules missing from PY_FILES in web/main.js: {sorted(missing)}"
+
+    # And everything listed must actually exist (catches stale entries).
+    for path in listed:
+        assert os.path.exists(os.path.join(game_dir, path)), f"PY_FILES lists nonexistent {path}"
+    print(f"OK: all {len(on_disk)} engine modules are shipped to the browser build")
+
+
 def test_lore():
     data = json.loads(webbridge.lore_json())
     assert data["title"]
@@ -192,6 +215,7 @@ if __name__ == "__main__":
     test_save_load_roundtrip()
     test_seed_and_mode_in_snapshot()
     test_replay_round_trip_through_bridge()
+    test_all_engine_modules_shipped_to_browser()
     test_lore()
     test_audio_synth()
     print("\nAll web-bridge smoke tests passed.")
