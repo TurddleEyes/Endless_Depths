@@ -244,6 +244,8 @@ def snapshot_json() -> str:
         "cause_of_death": cause,
         "shop_open": STATE.pending_shop,
         "boss_alive": any(m.is_boss and m.is_alive() for m in floor.monsters),
+        "music_track": audio_synth.track_for_depth(
+            STATE.depth, any(m.is_boss and m.is_alive() for m in floor.monsters)),
         "player": {
             "x": p.x, "y": p.y, "hp": p.hp, "max_hp": p.max_hp,
             "level": p.level, "xp": p.xp, "xp_to_next": p.xp_to_next,

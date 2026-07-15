@@ -252,8 +252,36 @@ function persistSave() {
 }
 
 function updateMusic() {
-  audio.playMusic(snap && snap.boss_alive ? "boss" : "depths");
+  audio.playMusic(snap ? snap.music_track : "depths");
 }
+
+/* ---------------------------------------------------------- fullscreen */
+const BASE_W = 1120;
+const BASE_H = 730;
+
+function toggleFullscreen() {
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  } else {
+    document.documentElement.requestFullscreen().catch(() => {});
+  }
+}
+
+function fitScale() {
+  const app = $("app");
+  if (document.fullscreenElement) {
+    const scale = Math.min(window.innerWidth / BASE_W, window.innerHeight / BASE_H);
+    app.style.transform = `scale(${scale.toFixed(3)})`;
+    app.style.transformOrigin = "top center";
+    document.body.style.overflow = "hidden";
+  } else {
+    app.style.transform = "";
+    document.body.style.overflow = "";
+  }
+}
+
+document.addEventListener("fullscreenchange", fitScale);
+window.addEventListener("resize", fitScale);
 
 function applySnapshot(s) {
   snap = s;
@@ -650,6 +678,10 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "m" || e.key === "M") {
     audio.setMuted(!audio.muted);
     if (mode === "play" || mode === "shop" || mode === "inventory") updateMusic();
+    return;
+  }
+  if ((e.key === "f" || e.key === "F") && mode !== "inventory" && mode !== "shop") {
+    toggleFullscreen();
     return;
   }
   switch (mode) {

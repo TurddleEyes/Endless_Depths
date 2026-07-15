@@ -19,7 +19,7 @@ import threading
 import wave
 
 SAMPLE_RATE = 22050
-AUDIO_VERSION = 2
+AUDIO_VERSION = 3
 
 _TWO_PI = 2.0 * math.pi
 
@@ -400,10 +400,167 @@ def _music_boss():
     return b
 
 
+def _music_caverns():
+    """Dreamy, echoing caves: Cmaj7 - Am7 - Fmaj7 - G."""
+    bpm = 92
+    eighth = 60 / bpm / 2
+    bars = [
+        ([48, 52, 55, 59], 36, (72, 71)),   # Cmaj7
+        ([57, 60, 64, 67], 33, (69, 67)),   # Am7
+        ([53, 57, 60, 64], 41, (65, 64)),   # Fmaj7
+        ([55, 59, 62, 67], 43, (67, 71)),   # G
+    ]
+    passes = 2
+    total = len(bars) * 8 * eighth * passes
+    b = Buffer(total + 0.4)
+    t = 0.0
+    for p in range(passes):
+        for arp, bass, lead in bars:
+            bass_f = _midi(bass)
+            for e in range(8):
+                if e % 4 == 0:
+                    b.tone(t + e * eighth, eighth * 3.8, bass_f, 0.13, "sine")
+                b.tone(t + e * eighth, eighth * 1.1, _midi(arp[e % 4]), 0.08, "triangle")
+                if e == 6:
+                    b.tone(t + e * eighth, 0.02, 7000, 0.02, "noise", seed=300 + e)
+            b.tone(t, eighth * 4 * 0.9, _midi(lead[0]), 0.06, "sine")
+            b.tone(t + 4 * eighth, eighth * 4 * 0.9, _midi(lead[1]), 0.06, "sine")
+            t += 8 * eighth
+    return b
+
+
+def _music_catacombs():
+    """Slow, funereal organ tones: Em - C - Am - B."""
+    bpm = 80
+    eighth = 60 / bpm / 2
+    bars = [
+        ([52, 55, 59, 64], 40, (76, 74)),   # Em
+        ([48, 52, 55, 60], 36, (72, 71)),   # C
+        ([57, 60, 64, 69], 45, (69, 67)),   # Am
+        ([59, 63, 66, 71], 47, (66, 64)),   # B
+    ]
+    passes = 2
+    total = len(bars) * 8 * eighth * passes
+    b = Buffer(total + 0.4)
+    t = 0.0
+    for p in range(passes):
+        for arp, bass, lead in bars:
+            # organ-ish: sustained root + fifth all bar
+            b.tone(t, eighth * 8 * 0.95, _midi(bass), 0.12, "square", duty=0.2)
+            b.tone(t, eighth * 8 * 0.95, _midi(bass + 7), 0.07, "triangle")
+            for e in range(0, 8, 2):
+                b.tone(t + e * eighth, eighth * 1.8, _midi(arp[(e // 2) % 4]), 0.07, "triangle")
+            b.tone(t, eighth * 4 * 0.9, _midi(lead[0]), 0.06, "square", duty=0.35)
+            b.tone(t + 4 * eighth, eighth * 4 * 0.9, _midi(lead[1]), 0.06, "square", duty=0.35)
+            t += 8 * eighth
+    return b
+
+
+def _music_forge():
+    """Driving, industrial: Dm - Dm - Gm - A with anvil clangs."""
+    bpm = 132
+    eighth = 60 / bpm / 2
+    bars = [
+        ([62, 65, 69, 74], 38, (74, 72)),   # Dm
+        ([62, 65, 69, 74], 38, (70, 72)),   # Dm again
+        ([55, 58, 62, 67], 31, (70, 67)),   # Gm
+        ([57, 61, 64, 69], 33, (73, 69)),   # A
+    ]
+    passes = 2
+    total = len(bars) * 8 * eighth * passes
+    b = Buffer(total + 0.4)
+    t = 0.0
+    for p in range(passes):
+        for arp, bass, lead in bars:
+            bass_f = _midi(bass)
+            for e in range(8):
+                b.tone(t + e * eighth, eighth * 0.8, bass_f, 0.15, "saw")
+                if e % 2 == 1:
+                    b.tone(t + e * eighth, eighth * 0.7, _midi(arp[(e // 2) % 4]), 0.07, "square", duty=0.3)
+                if e in (0, 4):  # anvil clang
+                    b.tone(t + e * eighth, 0.05, 0, 0.12, "noise", seed=400 + e)
+                    b.tone(t + e * eighth, 0.08, 1200, 0.06, "sine", sweep=-2.0)
+            b.tone(t + 2 * eighth, eighth * 2, _midi(lead[0]), 0.07, "square", duty=0.4)
+            b.tone(t + 6 * eighth, eighth * 2, _midi(lead[1]), 0.07, "square", duty=0.4)
+            t += 8 * eighth
+    return b
+
+
+def _music_abyss():
+    """Vast, slow dread: deep drones with a lonely melody."""
+    bpm = 60
+    eighth = 60 / bpm / 2
+    bars = [
+        (34, (65, 63)),   # Bb
+        (32, (63, 61)),   # Ab
+        (29, (61, 60)),   # F
+        (31, (58, 56)),   # G
+    ]
+    passes = 1  # long bars already; keep the loop tight
+    total = len(bars) * 8 * eighth * passes
+    b = Buffer(total + 0.5)
+    t = 0.0
+    for bass, lead in bars:
+        b.tone(t, eighth * 8 * 0.98, _midi(bass), 0.16, "sine")
+        b.tone(t, eighth * 8 * 0.98, _midi(bass + 12), 0.06, "triangle")
+        b.tone(t + eighth, eighth * 3, _midi(lead[0]), 0.055, "triangle")
+        b.tone(t + 5 * eighth, eighth * 2.5, _midi(lead[1]), 0.05, "triangle")
+        b.tone(t + 7 * eighth, 0.03, 5000, 0.015, "noise", seed=500)
+        t += 8 * eighth
+    return b
+
+
+def _music_crystal():
+    """Bright, glittering: A - D - F#m - E with bell tones."""
+    bpm = 112
+    eighth = 60 / bpm / 2
+    bars = [
+        ([57, 61, 64, 69], 45, (81, 80)),   # A
+        ([62, 66, 69, 74], 38, (78, 76)),   # D
+        ([54, 58, 61, 66], 42, (76, 73)),   # F#m
+        ([52, 56, 59, 64], 40, (73, 76)),   # E
+    ]
+    passes = 2
+    total = len(bars) * 8 * eighth * passes
+    b = Buffer(total + 0.4)
+    t = 0.0
+    for p in range(passes):
+        for arp, bass, lead in bars:
+            bass_f = _midi(bass)
+            for e in range(8):
+                if e % 2 == 0:
+                    b.tone(t + e * eighth, eighth * 1.6, bass_f, 0.11, "triangle")
+                b.tone(t + e * eighth, eighth * 0.9, _midi(arp[e % 4] + 12), 0.06, "triangle")
+                if e % 4 == 2:
+                    b.tone(t + e * eighth, 0.02, 8000, 0.025, "noise", seed=600 + e)
+            # bell lead: sine with a faint octave shimmer
+            b.tone(t, eighth * 3, _midi(lead[0]), 0.07, "sine")
+            b.tone(t, eighth * 3, _midi(lead[0] + 12), 0.02, "sine")
+            b.tone(t + 4 * eighth, eighth * 3, _midi(lead[1]), 0.07, "sine")
+            b.tone(t + 4 * eighth, eighth * 3, _midi(lead[1] + 12), 0.02, "sine")
+            t += 8 * eighth
+    return b
+
+
 MUSIC_BUILDERS = {
     "depths": _music_depths,
     "boss": _music_boss,
+    "caverns": _music_caverns,
+    "catacombs": _music_catacombs,
+    "forge": _music_forge,
+    "abyss": _music_abyss,
+    "crystal": _music_crystal,
 }
+
+# The soundtrack rotates as the player descends: each 3-floor band gets its
+# own track, cycling forever. Boss floors override with the boss theme.
+TRACK_ROTATION = ["depths", "caverns", "catacombs", "forge", "abyss", "crystal"]
+
+
+def track_for_depth(depth: int, boss_alive: bool = False) -> str:
+    if boss_alive:
+        return "boss"
+    return TRACK_ROTATION[((max(1, depth) - 1) // 3) % len(TRACK_ROTATION)]
 
 
 # ----------------------------------------------------------------------

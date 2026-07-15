@@ -16,7 +16,7 @@ from engine import save as save_module
 from engine.world import GameState
 from . import theme as T
 from . import sprites as sprite_defs
-from .audio import AudioManager
+from .audio import AudioManager, track_for_depth
 from .iteminfo import RARITY_COLORS, describe_item, sell_price
 from .widgets import ItemListPanel
 
@@ -44,6 +44,7 @@ class App(tk.Tk):
         self.state: GameState | None = None
         self.mode = "title"
         self._closing = False
+        self._fullscreen = False
         self._inventory_items: list = []
         self._shop_stock_items: list = []
         self._shop_inventory_items: list = []
@@ -148,7 +149,7 @@ class App(tk.Tk):
         sound = "off" if self.audio.muted else "on"
         self.footer_label.configure(
             text=("Move: arrows/WASD/hjkl  |  E: inventory  |  .: wait  |  "
-                  f"M: sound ({sound})  |  walk into stairs to descend  |  Esc: close menu"))
+                  f"M: sound ({sound})  |  F11: fullscreen  |  walk into stairs to descend"))
 
     def _build_stat_panel(self, panel: tk.Frame):
         tk.Label(panel, text="ENDLESS DEPTHS", font=T.HEADER_FONT,
@@ -311,7 +312,7 @@ class App(tk.Tk):
         else:
             self.highscore_label.configure(text="No runs recorded yet - descend and see how far you get.")
         self.title_status_label.configure(text="")
-        self.title_frame.pack(fill="both", expand=True)
+        self.title_frame.pack(expand=True)
         self.audio.play_music("depths")
 
     def _start_new_game(self):
@@ -334,7 +335,7 @@ class App(tk.Tk):
         self._hide_all()
         self.mode = "play"
         self._fx = []
-        self.play_frame.pack(fill="both", expand=True)
+        self.play_frame.pack(expand=True)
         self.focus_set()
         self._render()
         self._update_music()
@@ -358,7 +359,7 @@ class App(tk.Tk):
         for r in runs[:5]:
             lines.append(f"  Floor {r['depth_reached']:>3}  Lv {r['level']:<3} Gold {r['gold']:<5}")
         self.gameover_highscores_label.configure(text="\n".join(lines))
-        self.gameover_frame.pack(fill="both", expand=True)
+        self.gameover_frame.pack(expand=True)
         self.audio.play_music(None)
 
     def _on_close(self):
@@ -394,6 +395,9 @@ class App(tk.Tk):
         if event.keysym in ("m", "M"):
             self._toggle_mute()
             return
+        if event.keysym == "F11":
+            self._toggle_fullscreen()
+            return
         if self.mode == "play":
             self._handle_play_key(event)
         elif self.mode == "inventory":
@@ -427,6 +431,13 @@ class App(tk.Tk):
                 self._continue_game()
         elif self.mode == "gameover":
             self._show_title()
+
+    def _toggle_fullscreen(self):
+        self._fullscreen = not self._fullscreen
+        try:
+            self.attributes("-fullscreen", self._fullscreen)
+        except tk.TclError:
+            self._fullscreen = False
 
     def _toggle_mute(self):
         self.audio.set_muted(not self.audio.muted)
@@ -554,7 +565,7 @@ class App(tk.Tk):
         if self.audio.muted or self.state is None:
             return
         boss_alive = any(m.is_boss and m.is_alive() for m in self.state.floor.monsters)
-        self.audio.play_music("boss" if boss_alive else "depths")
+        self.audio.play_music(track_for_depth(self.state.depth, boss_alive))
 
     # ------------------------------------------------------------------
     # Animation system
