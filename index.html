@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Endless Depths</title>
 <link rel="stylesheet" href="web/style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128481;</text></svg>">
@@ -52,6 +52,22 @@
     </div>
     <div id="log"></div>
     <div id="footer">Move: arrows/WASD &nbsp;|&nbsp; E: inventory &nbsp;|&nbsp; .: wait &nbsp;|&nbsp; M: sound &nbsp;|&nbsp; F: fullscreen &nbsp;|&nbsp; walk into stairs to descend</div>
+
+    <!-- Touch controls (enabled on touch devices) -->
+    <div id="touch-controls">
+      <div id="dpad">
+        <button class="dpad-btn" id="dpad-up" data-dir="up">&#9650;</button>
+        <button class="dpad-btn" id="dpad-left" data-dir="left">&#9664;</button>
+        <button class="dpad-btn" id="dpad-wait" data-dir="wait">&#9679;</button>
+        <button class="dpad-btn" id="dpad-right" data-dir="right">&#9654;</button>
+        <button class="dpad-btn" id="dpad-down" data-dir="down">&#9660;</button>
+      </div>
+      <div id="touch-actions">
+        <button class="touch-btn" id="touch-inv">Bag</button>
+        <button class="touch-btn" id="touch-mute">Snd</button>
+        <button class="touch-btn" id="touch-full">Full</button>
+      </div>
+    </div>
   </div>
 
   <!-- Inventory overlay -->

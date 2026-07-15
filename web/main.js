@@ -6,9 +6,14 @@
 "use strict";
 
 const TILE = 32;
-const VIEW_COLS = 26;
-const VIEW_ROWS = 16;
 const SPRITE_PX = 16;
+
+// Touch devices get a smaller viewport (bigger on-screen tiles) and the
+// on-screen D-pad; the canvas then scales to the screen width via CSS.
+const IS_TOUCH = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+const IS_SMALL = window.matchMedia("(max-width: 760px)").matches;
+let VIEW_COLS = IS_SMALL ? 15 : 26;
+let VIEW_ROWS = IS_SMALL ? 13 : 16;
 
 const PY_FILES = [
   "engine/__init__.py", "engine/constants.py", "engine/combat.py",
@@ -34,6 +39,10 @@ const canvas = $("game-canvas");
 const ctx = canvas.getContext("2d");
 const minimap = $("minimap");
 const mmCtx = minimap.getContext("2d");
+
+canvas.width = VIEW_COLS * TILE;
+canvas.height = VIEW_ROWS * TILE;
+if (IS_TOUCH) $("touch-controls").classList.add("enabled");
 
 /* ---------------------------------------------------------------- boot */
 async function boot() {
@@ -269,7 +278,9 @@ function toggleFullscreen() {
 
 function fitScale() {
   const app = $("app");
-  if (document.fullscreenElement) {
+  // Phones already scale via responsive CSS - the transform trick is for
+  // desktop fullscreen only.
+  if (document.fullscreenElement && !IS_SMALL) {
     const scale = Math.min(window.innerWidth / BASE_W, window.innerHeight / BASE_H);
     app.style.transform = `scale(${scale.toFixed(3)})`;
     app.style.transformOrigin = "top center";
@@ -365,10 +376,12 @@ function floatNum(x, y, text, color) {
   const sx = (x - cam.x) * TILE + TILE / 2;
   const sy = (y - cam.y) * TILE;
   if (sx < 0 || sx > canvas.width || sy < 0 || sy > canvas.height) return;
+  // The canvas may be CSS-scaled (phone layout); fx-layer uses CSS pixels.
+  const k = canvas.clientWidth ? canvas.clientWidth / canvas.width : 1;
   const div = document.createElement("div");
   div.className = "dmg-num";
-  div.style.left = sx - 10 + "px";
-  div.style.top = sy - 6 + "px";
+  div.style.left = sx * k - 10 + "px";
+  div.style.top = sy * k - 6 + "px";
   div.style.color = color;
   div.textContent = text;
   $("fx-layer").appendChild(div);
@@ -716,6 +729,41 @@ document.addEventListener("keydown", (e) => {
       break;
   }
 });
+
+/* ------------------------------------------------------ touch controls */
+const TOUCH_DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+let holdTimer = null;
+
+function touchAct(dir) {
+  if (!bridge || mode !== "play") return;
+  if (dir === "wait") afterAction(bridge.wait_turn());
+  else afterAction(bridge.move(...TOUCH_DIRS[dir]));
+}
+
+for (const btn of document.querySelectorAll(".dpad-btn")) {
+  const dir = btn.dataset.dir;
+  const start = (e) => {
+    e.preventDefault();
+    touchAct(dir);
+    clearInterval(holdTimer);
+    holdTimer = setInterval(() => touchAct(dir), 170); // hold to keep walking
+  };
+  const stop = () => { clearInterval(holdTimer); holdTimer = null; };
+  btn.addEventListener("pointerdown", start);
+  btn.addEventListener("pointerup", stop);
+  btn.addEventListener("pointercancel", stop);
+  btn.addEventListener("pointerleave", stop);
+}
+
+$("touch-inv").addEventListener("click", () => {
+  if (mode === "play") openInventory();
+  else if (mode === "inventory") closeInventory();
+});
+$("touch-mute").addEventListener("click", () => {
+  audio.setMuted(!audio.muted);
+  if (mode === "play" || mode === "shop" || mode === "inventory") updateMusic();
+});
+$("touch-full").addEventListener("click", toggleFullscreen);
 
 /* --------------------------------------------------------- UI buttons */
 $("btn-new").addEventListener("click", startNewGame);

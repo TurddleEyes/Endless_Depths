@@ -69,6 +69,12 @@ python3 game.py
 
 Walk into the stairs `>` to descend. Walk into the shopkeeper to trade.
 
+**On phones/tablets** the browser version shows an on-screen D-pad
+(hold a direction to keep walking, center dot waits a turn) plus Bag /
+Sound / Fullscreen buttons, and the layout reflows to fit the screen.
+Tap an item to view its stats, double-tap (or use the action button) to
+use, equip, buy or sell it.
+
 ## Publishing to GitHub Pages
 
 1. Create a new repository on <https://github.com/new> (e.g. `endless-depths`).
