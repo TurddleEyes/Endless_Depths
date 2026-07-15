@@ -24,7 +24,10 @@ const PY_FILES = [
 
 const LS_SAVE = "endless_depths_save";
 const LS_SCORES = "endless_depths_scores";
+const LS_SPEEDRUN_SCORES = "endless_depths_speedrun_scores";
 const LS_SEEN_LORE = "endless_depths_seen_lore";
+
+const REPLAY_SPEEDS = [["1x", 130], ["2x", 45]]; // third press skips to end
 const LS_MUTED = "endless_depths_muted";
 
 let bridge = null;
@@ -34,6 +37,28 @@ let floorData = null;
 let snap = null;
 let mode = "title";
 let cam = { x: 0, y: 0 };
+
+// Run timing + replay playback state
+let liveRun = true;        // false while watching a replay - gates all persistence
+let runStartedAt = 0;
+let elapsedAtEnd = 0;
+let timerInterval = null;
+let replayTimer = null;
+let replayPaused = false;
+let replaySpeedIdx = 0;
+
+function fmtTime(seconds) {
+  seconds = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+           : `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function finalElapsed() {
+  return elapsedAtEnd || (performance.now() - runStartedAt) / 1000;
+}
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("game-canvas");
@@ -193,11 +218,13 @@ const audio = {
 
 /* ------------------------------------------------------------ screens */
 function showScreen(name) {
-  for (const id of ["title-screen", "lore-screen", "play-screen", "gameover-screen"]) {
+  for (const id of ["title-screen", "lore-screen", "play-screen",
+                     "gameover-screen", "victory-screen", "replay-picker"]) {
     $(id).classList.toggle("hidden", id !== name);
   }
   $("inventory-overlay").classList.add("hidden");
   $("shop-overlay").classList.add("hidden");
+  $("replay-controls").classList.toggle("hidden", mode !== "replay");
 }
 
 function toTitle() {
@@ -246,6 +273,41 @@ function loadScores() {
   catch { return []; }
 }
 
+function loadSpeedrunScores() {
+  try { return JSON.parse(localStorage.getItem(LS_SPEEDRUN_SCORES)) || []; }
+  catch { return []; }
+}
+
+function speedrunCompare(a, b) {
+  // Finishers first (fastest wins), then DNFs by deepest floor, then time.
+  if (a.finished !== b.finished) return a.finished ? -1 : 1;
+  if (a.finished) return a.elapsed_seconds - b.elapsed_seconds;
+  if (a.depth_reached !== b.depth_reached) return b.depth_reached - a.depth_reached;
+  return a.elapsed_seconds - b.elapsed_seconds;
+}
+
+function recordSpeedrunRun() {
+  const p = snap.player;
+  const runs = loadSpeedrunScores();
+  runs.push({
+    date: new Date().toISOString(),
+    finished: snap.game_won,
+    depth_reached: snap.depth,
+    elapsed_seconds: Math.round(finalElapsed() * 100) / 100,
+    level: p.level, gold: p.gold, kills: p.kills, turns: p.turns,
+    seed: snap.seed,
+  });
+  runs.sort(speedrunCompare);
+  localStorage.setItem(LS_SPEEDRUN_SCORES, JSON.stringify(runs.slice(0, 10)));
+  return runs;
+}
+
+function speedrunScoreLines(runs, count) {
+  return runs.slice(0, count).map((r) =>
+    `  ${r.finished ? "WIN " : "F" + String(r.depth_reached).padEnd(3)} ` +
+    `${fmtTime(r.elapsed_seconds).padStart(8)}  seed ${r.seed}`);
+}
+
 function renderTitleHighscores() {
   const runs = loadScores();
   $("title-highscores").textContent = runs.length
@@ -253,10 +315,52 @@ function renderTitleHighscores() {
         `  Floor ${String(r.depth_reached).padStart(3)}  Lv ${String(r.level).padEnd(3)} ` +
         `Gold ${String(r.gold).padEnd(5)} - ${r.cause}`).join("\n")
     : "No runs recorded yet - descend and see how far you get.";
+  const speedruns = loadSpeedrunScores();
+  $("title-speedrun-scores").textContent = speedruns.length
+    ? `Speedrun (goal: floor ${snap ? snap.target_floor : 100}):\n` +
+      speedrunScoreLines(speedruns, 5).join("\n")
+    : "Speedrun: race to floor 100.\nNo attempts yet.";
+}
+
+function seedInputValue() {
+  const text = $("seed-input").value.trim();
+  return text === "" ? null : text;
+}
+
+function startRunTimer() {
+  runStartedAt = performance.now();
+  elapsedAtEnd = 0;
+  clearInterval(timerInterval);
+  if (snap.run_mode === "speedrun") {
+    timerInterval = setInterval(() => {
+      if (snap && !snap.game_over && liveRun) {
+        $("stat-timer").textContent =
+          `Time: ${fmtTime((performance.now() - runStartedAt) / 1000)} ` +
+          `(goal: floor ${snap.target_floor})`;
+      }
+    }, 250);
+  }
+}
+
+function stopRunTimer() {
+  clearInterval(timerInterval);
+  timerInterval = null;
 }
 
 function startNewGame() {
-  applySnapshot(JSON.parse(bridge.new_game()));
+  applySnapshot(JSON.parse(bridge.new_game(seedInputValue(), "normal")));
+  liveRun = true;
+  startRunTimer();
+  mode = "play";
+  showScreen("play-screen");
+  persistSave();
+  updateMusic();
+}
+
+function startSpeedrun() {
+  applySnapshot(JSON.parse(bridge.new_game(seedInputValue(), "speedrun")));
+  liveRun = true;
+  startRunTimer();
   mode = "play";
   showScreen("play-screen");
   persistSave();
@@ -269,6 +373,8 @@ function continueGame() {
   const result = JSON.parse(bridge.load_game(saved));
   if (result.error) { localStorage.removeItem(LS_SAVE); toTitle(); return; }
   applySnapshot(result);
+  liveRun = true;
+  startRunTimer();
   mode = "play";
   showScreen("play-screen");
   updateMusic();
@@ -276,25 +382,58 @@ function continueGame() {
 
 function gameOver() {
   mode = "gameover";
+  stopRunTimer();
   const p = snap.player;
   const cause = snap.cause_of_death || "Unknown causes.";
   $("gameover-stats").textContent =
     `Cause of death: ${cause}\n\nDepth reached: ${snap.depth}\nLevel: ${p.level}\n` +
-    `Gold collected: ${p.gold}\nMonsters slain: ${p.kills}\nTurns survived: ${p.turns}`;
-  const runs = loadScores();
-  runs.push({
-    date: new Date().toISOString(), depth_reached: snap.depth,
-    turns_survived: p.turns, level: p.level, gold: p.gold, kills: p.kills,
-    cause,
-  });
-  runs.sort((a, b) => (b.depth_reached - a.depth_reached) || (b.gold - a.gold));
-  localStorage.setItem(LS_SCORES, JSON.stringify(runs.slice(0, 10)));
+    `Gold collected: ${p.gold}\nMonsters slain: ${p.kills}\nTurns survived: ${p.turns}\n` +
+    `Time: ${fmtTime(finalElapsed())}\nSeed: ${snap.seed}`;
+  if (snap.run_mode === "speedrun") {
+    const runs = recordSpeedrunRun();
+    $("gameover-highscores").textContent =
+      "Speedrun Leaderboard:\n" + speedrunScoreLines(runs, 5).join("\n");
+  } else {
+    const runs = loadScores();
+    runs.push({
+      date: new Date().toISOString(), depth_reached: snap.depth,
+      turns_survived: p.turns, level: p.level, gold: p.gold, kills: p.kills,
+      cause,
+    });
+    runs.sort((a, b) => (b.depth_reached - a.depth_reached) || (b.gold - a.gold));
+    localStorage.setItem(LS_SCORES, JSON.stringify(runs.slice(0, 10)));
+    $("gameover-highscores").textContent = "High Scores:\n" +
+      runs.slice(0, 5).map((r) =>
+        `  Floor ${String(r.depth_reached).padStart(3)}  Lv ${String(r.level).padEnd(3)} Gold ${r.gold}`).join("\n");
+  }
   localStorage.removeItem(LS_SAVE);
-  $("gameover-highscores").textContent = "High Scores:\n" +
-    runs.slice(0, 5).map((r) =>
-      `  Floor ${String(r.depth_reached).padStart(3)}  Lv ${String(r.level).padEnd(3)} Gold ${r.gold}`).join("\n");
+  setReplayButtonsVisible("gameover");
   showScreen("gameover-screen");
   audio.stopMusic();
+}
+
+function victory() {
+  mode = "victory";
+  stopRunTimer();
+  const p = snap.player;
+  $("victory-stats").textContent =
+    `Floor ${snap.target_floor} reached in ${fmtTime(finalElapsed())}!\n\n` +
+    `Level: ${p.level}\nGold collected: ${p.gold}\nMonsters slain: ${p.kills}\n` +
+    `Turns taken: ${p.turns}\nSeed: ${snap.seed}`;
+  const runs = recordSpeedrunRun();
+  $("victory-scores").textContent =
+    "Speedrun Leaderboard:\n" + speedrunScoreLines(runs, 5).join("\n");
+  localStorage.removeItem(LS_SAVE);
+  setReplayButtonsVisible("victory");
+  showScreen("victory-screen");
+  audio.stopMusic();
+}
+
+function setReplayButtonsVisible(prefix) {
+  const show = snap.replayable;
+  $(`${prefix}-replay-row`).classList.toggle("hidden", !show);
+  $(`${prefix}-replay-status`).textContent =
+    show ? "" : "(replay unavailable for continued runs)";
 }
 
 /* ----------------------------------------------------------- snapshot */
@@ -349,8 +488,9 @@ function afterAction(snapJson) {
   applySnapshot(JSON.parse(snapJson));
   persistSave();
   if (snap.game_over) {
+    elapsedAtEnd = (performance.now() - runStartedAt) / 1000;
     mode = "dying";
-    setTimeout(gameOver, 900);
+    setTimeout(snap.game_won ? victory : gameOver, 900);
     return;
   }
   if (snap.shop_open && mode === "play") openShop();
@@ -358,6 +498,101 @@ function afterAction(snapJson) {
     if (snap.player.hp <= snap.player.max_hp * 0.25) audio.play("heartbeat");
     updateMusic();
   }
+}
+
+/* ------------------------------------------------------------- replays */
+function downloadReplay() {
+  const text = bridge.save_replay(finalElapsed());
+  const blob = new Blob([text], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `endless-depths-replay-seed${snap.seed}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+}
+
+function copyReplayCode(prefix) {
+  const text = bridge.save_replay(finalElapsed());
+  const code = btoa(unescape(encodeURIComponent(text)));  // UTF-8-safe base64
+  navigator.clipboard.writeText(code).then(() => {
+    $(`${prefix}-replay-status`).textContent =
+      `Replay code copied to clipboard (${code.length} characters).`;
+  }).catch(() => {
+    $(`${prefix}-replay-status`).textContent = "Clipboard blocked - use Save Replay File instead.";
+  });
+}
+
+function openReplayPicker() {
+  mode = "replay-picker";
+  $("replay-error").textContent = "";
+  $("replay-code-input").value = "";
+  $("replay-file-input").value = "";
+  showScreen("replay-picker");
+}
+
+function startReplayPlayback(text) {
+  const result = JSON.parse(bridge.load_replay(text));
+  if (result.error) {
+    $("replay-error").textContent = "That is not a valid replay file or code.";
+    return;
+  }
+  liveRun = false;
+  stopRunTimer();
+  mode = "replay";
+  replayPaused = false;
+  replaySpeedIdx = 0;
+  $("replay-pause-btn").textContent = "Pause";
+  $("replay-speed-btn").textContent = "Speed: 1x";
+  applySnapshot(result);
+  showScreen("play-screen");
+  updateMusic();
+  scheduleReplayStep();
+}
+
+function scheduleReplayStep() {
+  clearTimeout(replayTimer);
+  if (mode !== "replay" || replayPaused) return;
+  replayTimer = setTimeout(() => {
+    // Read-only playback: applySnapshot only - never persistSave/scoring.
+    applySnapshot(JSON.parse(bridge.replay_step()));
+    updateMusic();
+    const prog = JSON.parse(bridge.replay_progress());
+    $("replay-progress").textContent = `${prog.cursor}/${prog.total}`;
+    if (prog.finished) {
+      setTimeout(stopReplay, 1500);
+      return;
+    }
+    scheduleReplayStep();
+  }, REPLAY_SPEEDS[replaySpeedIdx][1]);
+}
+
+function toggleReplayPause() {
+  replayPaused = !replayPaused;
+  $("replay-pause-btn").textContent = replayPaused ? "Resume" : "Pause";
+  scheduleReplayStep();
+}
+
+function cycleReplaySpeed() {
+  if (replaySpeedIdx < REPLAY_SPEEDS.length - 1) {
+    replaySpeedIdx += 1;
+    $("replay-speed-btn").textContent = `Speed: ${REPLAY_SPEEDS[replaySpeedIdx][0]}`;
+    scheduleReplayStep();
+  } else {
+    clearTimeout(replayTimer);
+    applySnapshot(JSON.parse(bridge.replay_skip_to_end()));
+    const prog = JSON.parse(bridge.replay_progress());
+    $("replay-progress").textContent = `${prog.cursor}/${prog.total}`;
+    setTimeout(stopReplay, 1200);
+  }
+}
+
+function stopReplay() {
+  if (mode !== "replay") return;
+  clearTimeout(replayTimer);
+  liveRun = true;
+  toTitle();
 }
 
 /* -------------------------------------------------------------- events */
@@ -539,6 +774,8 @@ function renderPanel() {
   $("stat-armor").textContent = `Armor: ${p.armor || "(none)"}`;
   $("stat-accessory").textContent = `Accessory: ${p.accessory || "(none)"}`;
   $("stat-kills").textContent = `Kills: ${p.kills}   Turns: ${p.turns}`;
+  $("stat-seed").textContent = `Seed: ${snap.seed} (tap to copy)`;
+  $("stat-timer").classList.toggle("hidden", snap.run_mode !== "speedrun");
 }
 
 function renderLog() {
@@ -727,6 +964,14 @@ const MOVE_KEYS = {
 
 document.addEventListener("keydown", (e) => {
   if (!bridge) return;
+  // While typing in the seed field or replay-code box, letters are text,
+  // not shortcuts.
+  const el = document.activeElement;
+  if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
+    if (e.key === "Escape") el.blur();
+    else if (e.key === "Enter" && el.id === "seed-input") startNewGame();
+    return;
+  }
   if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)) {
     e.preventDefault();
   }
@@ -742,8 +987,21 @@ document.addEventListener("keydown", (e) => {
   switch (mode) {
     case "title":
       if (e.key === "n" || e.key === "N" || e.key === "Enter") startNewGame();
+      else if (e.key === "r" || e.key === "R") startSpeedrun();
       else if ((e.key === "c" || e.key === "C") && !$("btn-continue").disabled) continueGame();
+      else if (e.key === "v" || e.key === "V") openReplayPicker();
       else if (e.key === "l" || e.key === "L") showLore(false);
+      break;
+    case "replay-picker":
+      if (e.key === "Escape") toTitle();
+      break;
+    case "replay":
+      if (e.key === " ") toggleReplayPause();
+      else if (e.key === "s" || e.key === "S") cycleReplaySpeed();
+      else if (e.key === "Escape") stopReplay();
+      break;
+    case "victory":
+      if (e.key === "Enter" || e.key === "Escape") toTitle();
       break;
     case "lore":
       if (e.key === "ArrowRight" || e.key === "Enter" || e.key === " ") loreStep(1);
@@ -773,7 +1031,9 @@ document.addEventListener("keydown", (e) => {
       else if (e.key === "Enter") shopActivate();
       break;
     case "gameover":
-      toTitle();
+      // Deliberate keys only, so a stray keypress can't skip the
+      // Save Replay buttons.
+      if (e.key === "Enter" || e.key === "Escape") toTitle();
       break;
   }
 });
@@ -820,6 +1080,39 @@ $("btn-title").addEventListener("click", toTitle);
 $("btn-lore").addEventListener("click", () => showLore(false));
 $("lore-next").addEventListener("click", () => loreStep(1));
 $("lore-back").addEventListener("click", () => loreStep(-1));
+$("btn-speedrun").addEventListener("click", startSpeedrun);
+$("btn-watch").addEventListener("click", openReplayPicker);
+$("victory-title-btn").addEventListener("click", toTitle);
+
+$("gameover-save-replay").addEventListener("click", downloadReplay);
+$("gameover-copy-replay").addEventListener("click", () => copyReplayCode("gameover"));
+$("victory-save-replay").addEventListener("click", downloadReplay);
+$("victory-copy-replay").addEventListener("click", () => copyReplayCode("victory"));
+
+$("replay-cancel-btn").addEventListener("click", toTitle);
+$("replay-play-btn").addEventListener("click", () => {
+  const text = $("replay-code-input").value.trim();
+  if (!text) { $("replay-error").textContent = "Paste a replay code first."; return; }
+  try {
+    startReplayPlayback(decodeURIComponent(escape(atob(text))));
+  } catch {
+    startReplayPlayback(text); // maybe it's raw JSON pasted directly
+  }
+});
+$("replay-file-input").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => startReplayPlayback(reader.result);
+  reader.readAsText(file);
+});
+$("replay-pause-btn").addEventListener("click", toggleReplayPause);
+$("replay-speed-btn").addEventListener("click", cycleReplaySpeed);
+$("replay-stop-btn").addEventListener("click", stopReplay);
+
+$("stat-seed").addEventListener("click", () => {
+  if (snap) navigator.clipboard.writeText(String(snap.seed)).catch(() => {});
+});
 $("inv-action").addEventListener("click", inventoryActivate);
 $("inv-drop").addEventListener("click", inventoryDrop);
 $("inv-close").addEventListener("click", closeInventory);

@@ -10,6 +10,7 @@ from . import constants as C
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAVE_PATH = os.path.join(_BASE_DIR, C.SAVE_FILE)
 HIGHSCORE_PATH = os.path.join(_BASE_DIR, C.HIGHSCORE_FILE)
+SPEEDRUN_SCORE_PATH = os.path.join(_BASE_DIR, C.SPEEDRUN_SCORE_FILE)
 SETTINGS_PATH = os.path.join(_BASE_DIR, "settings.json")
 
 
@@ -66,6 +67,46 @@ def load_highscores() -> list:
         return data.get("runs", [])
     except (OSError, json.JSONDecodeError):
         return []
+
+
+def load_speedrun_scores() -> list:
+    try:
+        with open(SPEEDRUN_SCORE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("runs", [])
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def speedrun_sort_key(r):
+    """Finishers first (fastest time wins), then non-finishers by deepest
+    floor, tie-broken by time."""
+    if r.get("finished"):
+        return (0, r.get("elapsed_seconds", 0))
+    return (1, -r.get("depth_reached", 0), r.get("elapsed_seconds", 0))
+
+
+def record_speedrun_run(state, elapsed_seconds: float) -> list:
+    runs = load_speedrun_scores()
+    runs.append({
+        "date": datetime.now().isoformat(timespec="seconds"),
+        "finished": bool(state.game_won),
+        "depth_reached": state.depth,
+        "elapsed_seconds": round(elapsed_seconds, 2),
+        "level": state.player.level,
+        "gold": state.player.gold,
+        "kills": state.player.kills,
+        "turns": state.player.turns,
+        "seed": state.seed,
+    })
+    runs.sort(key=speedrun_sort_key)
+    runs = runs[:C.MAX_SPEEDRUN_SCORES]
+    try:
+        with open(SPEEDRUN_SCORE_PATH, "w", encoding="utf-8") as f:
+            json.dump({"runs": runs}, f, indent=2)
+    except OSError:
+        pass
+    return runs
 
 
 def record_run(state, cause: str) -> list:

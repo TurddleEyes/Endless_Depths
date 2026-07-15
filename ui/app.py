@@ -8,12 +8,16 @@ never reaches into engine internals to mutate state directly.
 """
 from __future__ import annotations
 
+import json
 import os
+import time
 import tkinter as tk
 
 from engine import constants as C
 from engine import save as save_module
 from engine.world import GameState
+from engine.replay import (ReplayPlayer, build_replay_dict, replay_from_text,
+                            replay_to_code)
 from . import theme as T
 from . import sprites as sprite_defs
 from .audio import AudioManager, track_for_depth
@@ -32,6 +36,15 @@ WAIT_KEYS = ("period", "z", "Z")
 
 FX_TICK_MS = 33
 TITLE_PULSE_COLORS = ("#66d9ef", "#8fe3f5", "#4aa8c0", "#8fe3f5")
+
+REPLAY_SPEEDS = [("1x", 130), ("2x", 45)]  # third option skips to the end
+
+
+def _fmt_time(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
 
 
 class App(tk.Tk):
@@ -71,6 +84,11 @@ class App(tk.Tk):
 
         self._lore_page = 0
         self._lore_return_to = "title"
+        self._run_started_at = time.monotonic()
+        self._elapsed_at_end = 0.0
+        self._replay: ReplayPlayer | None = None
+        self._replay_paused = False
+        self._replay_speed_idx = 0
 
         self._build_title_screen()
         self._build_lore_screen()
@@ -78,6 +96,8 @@ class App(tk.Tk):
         self._build_inventory_overlay()
         self._build_shop_overlay()
         self._build_gameover_screen()
+        self._build_victory_screen()
+        self._build_replay_picker()
 
         if self.settings.get("seen_lore"):
             self._show_title()
@@ -85,40 +105,60 @@ class App(tk.Tk):
             self._show_lore(first_time=True)
         self.after(400, self._audio_tick)
         self.after(500, self._title_tick)
+        self.after(300, self._stopwatch_tick)
 
     # ------------------------------------------------------------------
     # Screen construction
     # ------------------------------------------------------------------
     def _build_title_screen(self):
-        self.title_frame = tk.Frame(self, bg=T.BG, width=860, height=640)
+        self.title_frame = tk.Frame(self, bg=T.BG, width=880, height=760)
         self.title_frame.pack_propagate(False)
 
         self.title_label = tk.Label(self.title_frame, text="ENDLESS DEPTHS",
                                       font=T.TITLE_FONT, bg=T.BG, fg=T.ACCENT)
-        self.title_label.pack(pady=(50, 4))
+        self.title_label.pack(pady=(22, 4))
         tk.Label(self.title_frame, text="An infinite dungeon roguelike",
-                  font=T.UI_FONT, bg=T.BG, fg=T.TEXT_DIM).pack(pady=(0, 14))
+                  font=T.UI_FONT, bg=T.BG, fg=T.TEXT_DIM).pack(pady=(0, 8))
 
-        tk.Label(self.title_frame, image=self.big_hero, bg=T.BG).pack(pady=(0, 14))
+        tk.Label(self.title_frame, image=self.big_hero, bg=T.BG).pack(pady=(0, 8))
 
         btn_style = dict(font=T.UI_FONT_BOLD, width=22, bg=T.PANEL_BG, fg=T.TEXT_MAIN,
                           activebackground=T.ACCENT, activeforeground=T.BG,
                           relief="flat", bd=0, highlightthickness=1,
                           highlightbackground=T.PANEL_BORDER)
 
+        seed_row = tk.Frame(self.title_frame, bg=T.BG)
+        seed_row.pack(pady=(0, 8))
+        tk.Label(seed_row, text="Seed (optional):", font=T.UI_FONT, bg=T.BG,
+                  fg=T.TEXT_DIM).pack(side="left", padx=(0, 6))
+        self.seed_entry = tk.Entry(seed_row, width=14, font=T.UI_FONT, bg=T.PANEL_BG,
+                                     fg=T.TEXT_MAIN, insertbackground=T.TEXT_MAIN,
+                                     relief="flat", highlightthickness=1,
+                                     highlightbackground=T.PANEL_BORDER)
+        self.seed_entry.pack(side="left")
+
         tk.Button(self.title_frame, text="New Game (N)", command=self._start_new_game,
                    **btn_style).pack(pady=5)
+        tk.Button(self.title_frame, text="Speedrun to Floor 100 (R)",
+                   command=self._start_speedrun, **btn_style).pack(pady=5)
         self.continue_button = tk.Button(self.title_frame, text="Continue (C)",
                                            command=self._continue_game, **btn_style)
         self.continue_button.pack(pady=5)
+        tk.Button(self.title_frame, text="Watch Replay (V)",
+                   command=self._open_replay_picker, **btn_style).pack(pady=5)
         tk.Button(self.title_frame, text="Lore (L)", command=lambda: self._show_lore(first_time=False),
                    **btn_style).pack(pady=5)
         tk.Button(self.title_frame, text="Quit", command=self._on_close,
                    **btn_style).pack(pady=5)
 
-        self.highscore_label = tk.Label(self.title_frame, text="", font=T.UI_FONT,
+        scores_row = tk.Frame(self.title_frame, bg=T.BG)
+        scores_row.pack(pady=(16, 0))
+        self.highscore_label = tk.Label(scores_row, text="", font=T.UI_FONT,
                                           bg=T.BG, fg=T.TEXT_DIM, justify="left")
-        self.highscore_label.pack(pady=(20, 0))
+        self.highscore_label.pack(side="left", padx=12, anchor="n")
+        self.speedrun_score_label = tk.Label(scores_row, text="", font=T.UI_FONT,
+                                               bg=T.BG, fg=T.TEXT_DIM, justify="left")
+        self.speedrun_score_label.pack(side="left", padx=12, anchor="n")
 
         self.title_status_label = tk.Label(self.title_frame, text="", font=T.UI_FONT,
                                              bg=T.BG, fg=T.TEXT_BAD)
@@ -223,7 +263,12 @@ class App(tk.Tk):
                   bg=T.PANEL_BG, fg=T.ACCENT).pack(anchor="w", padx=10, pady=(8, 4))
 
         self.depth_label = self._panel_label(panel, "Depth: 1")
+        self.timer_label = self._panel_label(panel, "")
+        self.timer_label.configure(fg=T.TEXT_WARN)
         self.level_label = self._panel_label(panel, "Level: 1")
+        self.seed_label = self._panel_label(panel, "Seed: -")
+        self.seed_label.configure(fg=T.TEXT_DIM)
+        self.seed_label.bind("<Button-1>", lambda _e: self._copy_seed())
 
         self.hp_bar = tk.Canvas(panel, width=220, height=18, bg=T.PANEL_BG, highlightthickness=0)
         self.hp_bar.pack(anchor="w", padx=10, pady=(4, 2))
@@ -340,29 +385,92 @@ class App(tk.Tk):
         tk.Label(f, text="Click: view   Double-click/Enter: buy or sell   Tab: switch pane   Esc: leave",
                   font=("Courier", 9), bg=T.PANEL_BG, fg=T.TEXT_DIM).pack(pady=(0, 10))
 
-    def _build_gameover_screen(self):
-        self.gameover_frame = tk.Frame(self, bg=T.BG, width=860, height=640)
-        self.gameover_frame.pack_propagate(False)
-        tk.Label(self.gameover_frame, text="YOU DIED", font=T.TITLE_FONT,
-                  bg=T.BG, fg=T.TEXT_BAD).pack(pady=(60, 10))
-        self.gameover_stats_label = tk.Label(self.gameover_frame, text="", font=T.UI_FONT,
-                                               bg=T.BG, fg=T.TEXT_MAIN, justify="left")
-        self.gameover_stats_label.pack(pady=(0, 20))
-        self.gameover_highscores_label = tk.Label(self.gameover_frame, text="", font=T.UI_FONT,
-                                                     bg=T.BG, fg=T.TEXT_DIM, justify="left")
-        self.gameover_highscores_label.pack(pady=(0, 20))
-        tk.Button(self.gameover_frame, text="Return to Title", font=T.UI_FONT_BOLD,
+    def _terminal_screen_buttons(self, frame):
+        """Save/Copy replay buttons + return button, shared by the game-over
+        and victory screens. Returns (replay_row, status_label)."""
+        style = dict(font=T.UI_FONT, bg=T.PANEL_BG, fg=T.TEXT_MAIN, relief="flat",
+                      activebackground=T.ACCENT, activeforeground=T.BG)
+        replay_row = tk.Frame(frame, bg=T.BG)
+        replay_row.pack(pady=(0, 8))
+        tk.Button(replay_row, text="Save Replay File",
+                   command=self._save_replay_file, **style).pack(side="left", padx=5)
+        tk.Button(replay_row, text="Copy Replay Code",
+                   command=self._copy_replay_code, **style).pack(side="left", padx=5)
+        status = tk.Label(frame, text="", font=("Courier", 9), bg=T.BG, fg=T.TEXT_GOOD)
+        status.pack(pady=(0, 8))
+        tk.Button(frame, text="Return to Title", font=T.UI_FONT_BOLD,
                    command=self._show_title, bg=T.PANEL_BG, fg=T.TEXT_MAIN,
                    activebackground=T.ACCENT, relief="flat", width=22).pack()
+        return replay_row, status
+
+    def _build_gameover_screen(self):
+        self.gameover_frame = tk.Frame(self, bg=T.BG, width=880, height=680)
+        self.gameover_frame.pack_propagate(False)
+        tk.Label(self.gameover_frame, text="YOU DIED", font=T.TITLE_FONT,
+                  bg=T.BG, fg=T.TEXT_BAD).pack(pady=(40, 10))
+        self.gameover_stats_label = tk.Label(self.gameover_frame, text="", font=T.UI_FONT,
+                                               bg=T.BG, fg=T.TEXT_MAIN, justify="left")
+        self.gameover_stats_label.pack(pady=(0, 14))
+        self.gameover_highscores_label = tk.Label(self.gameover_frame, text="", font=T.UI_FONT,
+                                                     bg=T.BG, fg=T.TEXT_DIM, justify="left")
+        self.gameover_highscores_label.pack(pady=(0, 14))
+        self.gameover_replay_row, self.gameover_replay_status = \
+            self._terminal_screen_buttons(self.gameover_frame)
+
+    def _build_victory_screen(self):
+        self.victory_frame = tk.Frame(self, bg=T.BG, width=880, height=680)
+        self.victory_frame.pack_propagate(False)
+        tk.Label(self.victory_frame, text="VICTORY!", font=T.TITLE_FONT,
+                  bg=T.BG, fg=T.TEXT_WARN).pack(pady=(40, 2))
+        tk.Label(self.victory_frame, text="You escaped the Endless Depths.",
+                  font=T.UI_FONT, bg=T.BG, fg=T.TEXT_MAIN).pack(pady=(0, 12))
+        self.victory_stats_label = tk.Label(self.victory_frame, text="", font=T.UI_FONT,
+                                              bg=T.BG, fg=T.TEXT_MAIN, justify="left")
+        self.victory_stats_label.pack(pady=(0, 14))
+        self.victory_scores_label = tk.Label(self.victory_frame, text="", font=T.UI_FONT,
+                                               bg=T.BG, fg=T.TEXT_DIM, justify="left")
+        self.victory_scores_label.pack(pady=(0, 14))
+        self.victory_replay_row, self.victory_replay_status = \
+            self._terminal_screen_buttons(self.victory_frame)
+
+    def _build_replay_picker(self):
+        self.replay_picker_frame = tk.Frame(self, bg=T.PANEL_BG, highlightthickness=2,
+                                              highlightbackground=T.ACCENT)
+        f = self.replay_picker_frame
+        tk.Label(f, text="Watch Replay", font=T.HEADER_FONT, bg=T.PANEL_BG,
+                  fg=T.ACCENT).pack(pady=(10, 6))
+        style = dict(font=T.UI_FONT, bg=T.BG, fg=T.TEXT_MAIN, relief="flat",
+                      activebackground=T.ACCENT, activeforeground=T.BG)
+        tk.Button(f, text="Load Replay File...", command=self._load_replay_file,
+                   **style).pack(pady=4)
+        tk.Label(f, text="or paste a replay code:", font=T.UI_FONT, bg=T.PANEL_BG,
+                  fg=T.TEXT_DIM).pack(pady=(8, 2))
+        self.replay_code_text = tk.Text(f, width=52, height=6, font=("Courier", 9),
+                                          bg=T.BG, fg=T.TEXT_MAIN,
+                                          insertbackground=T.TEXT_MAIN, bd=0,
+                                          highlightthickness=1,
+                                          highlightbackground=T.PANEL_BORDER)
+        self.replay_code_text.pack(padx=14, pady=4)
+        self.replay_picker_status = tk.Label(f, text="", font=T.UI_FONT, bg=T.PANEL_BG,
+                                               fg=T.TEXT_BAD)
+        self.replay_picker_status.pack(pady=(2, 0))
+        btn_row = tk.Frame(f, bg=T.PANEL_BG)
+        btn_row.pack(pady=(6, 12))
+        tk.Button(btn_row, text="Play Pasted Code", command=self._play_pasted_code,
+                   **style).pack(side="left", padx=6)
+        tk.Button(btn_row, text="Cancel (Esc)", command=self._close_replay_picker,
+                   **style).pack(side="left", padx=6)
 
     # ------------------------------------------------------------------
     # Screen switching
     # ------------------------------------------------------------------
     def _hide_all(self):
-        for frame in (self.title_frame, self.lore_frame, self.play_frame, self.gameover_frame):
+        for frame in (self.title_frame, self.lore_frame, self.play_frame,
+                       self.gameover_frame, self.victory_frame):
             frame.pack_forget()
         self.inventory_frame.place_forget()
         self.shop_frame.place_forget()
+        self.replay_picker_frame.place_forget()
 
     def _show_title(self):
         self._hide_all()
@@ -378,14 +486,48 @@ class App(tk.Tk):
             self.highscore_label.configure(text="\n".join(lines))
         else:
             self.highscore_label.configure(text="No runs recorded yet - descend and see how far you get.")
+
+        speedruns = save_module.load_speedrun_scores()
+        if speedruns:
+            lines = [f"Speedrun (goal: floor {C.SPEEDRUN_TARGET_FLOOR}):"]
+            for r in speedruns[:5]:
+                mark = "WIN " if r.get("finished") else f"F{r['depth_reached']:<3}"
+                lines.append(f"  {mark} {_fmt_time(r['elapsed_seconds']):>8}  seed {r['seed']}")
+            self.speedrun_score_label.configure(text="\n".join(lines))
+        else:
+            self.speedrun_score_label.configure(
+                text=f"Speedrun: race to floor {C.SPEEDRUN_TARGET_FLOOR}.\nNo attempts yet.")
+
         self.title_status_label.configure(text="")
         self.title_frame.pack(expand=True)
         self.audio.play_music("depths")
 
+    def _read_seed_input(self):
+        """Returns (ok, seed_or_None) from the title-screen seed field."""
+        text = self.seed_entry.get().strip()
+        if not text:
+            return True, None
+        try:
+            return True, int(text)
+        except ValueError:
+            self.title_status_label.configure(text="Seed must be a whole number.")
+            return False, None
+
     def _start_new_game(self):
-        self.state = GameState()
+        self._begin_run("normal")
+
+    def _start_speedrun(self):
+        self._begin_run("speedrun")
+
+    def _begin_run(self, mode: str):
+        ok, seed = self._read_seed_input()
+        if not ok:
+            return
+        self.state = GameState(seed=seed, mode=mode)
         self.state.new_game()
         self.state.take_events()  # discard setup events
+        self._run_started_at = time.monotonic()
+        self._elapsed_at_end = 0.0
         save_module.save_game(self.state)
         self._enter_play_mode()
 
@@ -396,6 +538,8 @@ class App(tk.Tk):
             return
         self.state = loaded
         self.state.take_events()
+        self._run_started_at = time.monotonic()
+        self._elapsed_at_end = 0.0
         self._enter_play_mode()
 
     def _enter_play_mode(self):
@@ -406,6 +550,9 @@ class App(tk.Tk):
         self.focus_set()
         self._render()
         self._update_music()
+
+    def _final_elapsed(self) -> float:
+        return self._elapsed_at_end or (time.monotonic() - self._run_started_at)
 
     def _show_gameover(self):
         self._hide_all()
@@ -418,16 +565,185 @@ class App(tk.Tk):
                   f"Level: {p.level}\n"
                   f"Gold collected: {p.gold}\n"
                   f"Monsters slain: {p.kills}\n"
-                  f"Turns survived: {p.turns}")
+                  f"Turns survived: {p.turns}\n"
+                  f"Time: {_fmt_time(self._final_elapsed())}\n"
+                  f"Seed: {self.state.seed}")
         )
-        runs = save_module.record_run(self.state, cause)
+        if self.state.mode == "speedrun":
+            runs = save_module.record_speedrun_run(self.state, self._final_elapsed())
+            lines = ["Speedrun Leaderboard:"]
+            for r in runs[:5]:
+                mark = "WIN " if r.get("finished") else f"F{r['depth_reached']:<3}"
+                lines.append(f"  {mark} {_fmt_time(r['elapsed_seconds']):>8}")
+        else:
+            runs = save_module.record_run(self.state, cause)
+            lines = ["High Scores:"]
+            for r in runs[:5]:
+                lines.append(f"  Floor {r['depth_reached']:>3}  Lv {r['level']:<3} Gold {r['gold']:<5}")
         save_module.delete_save()
-        lines = ["High Scores:"]
-        for r in runs[:5]:
-            lines.append(f"  Floor {r['depth_reached']:>3}  Lv {r['level']:<3} Gold {r['gold']:<5}")
         self.gameover_highscores_label.configure(text="\n".join(lines))
+        self._set_replay_buttons_visible(self.gameover_replay_row, self.gameover_replay_status)
         self.gameover_frame.pack(expand=True)
         self.audio.play_music(None)
+
+    def _show_victory(self):
+        self._hide_all()
+        self.mode = "gameover"
+        p = self.state.player
+        elapsed = self._final_elapsed()
+        self.victory_stats_label.configure(
+            text=(f"Floor {self.state.target_floor} reached in {_fmt_time(elapsed)}!\n\n"
+                  f"Level: {p.level}\n"
+                  f"Gold collected: {p.gold}\n"
+                  f"Monsters slain: {p.kills}\n"
+                  f"Turns taken: {p.turns}\n"
+                  f"Seed: {self.state.seed}")
+        )
+        runs = save_module.record_speedrun_run(self.state, elapsed)
+        save_module.delete_save()
+        lines = ["Speedrun Leaderboard:"]
+        for r in runs[:5]:
+            mark = "WIN " if r.get("finished") else f"F{r['depth_reached']:<3}"
+            lines.append(f"  {mark} {_fmt_time(r['elapsed_seconds']):>8}")
+        self.victory_scores_label.configure(text="\n".join(lines))
+        self._set_replay_buttons_visible(self.victory_replay_row, self.victory_replay_status)
+        self.victory_frame.pack(expand=True)
+        self.audio.play_music(None)
+
+    def _set_replay_buttons_visible(self, row, status_label):
+        status_label.configure(text="", fg=T.TEXT_GOOD)
+        if self.state.replayable:
+            row.pack(pady=(0, 8))
+        else:
+            row.pack_forget()
+            status_label.configure(text="(replay unavailable for continued runs)",
+                                    fg=T.TEXT_DIM)
+        self._active_replay_status = status_label
+
+    # ------------------------------------------------------------------
+    # Replay save / share / watch
+    # ------------------------------------------------------------------
+    def _save_replay_file(self):
+        from tkinter import filedialog
+        replay = build_replay_dict(self.state, self._final_elapsed())
+        path = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            initialfile=f"endless-depths-replay-seed{self.state.seed}.json",
+            filetypes=[("Replay files", "*.json")])
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(replay, f, separators=(",", ":"))
+            self._active_replay_status.configure(text=f"Saved to {os.path.basename(path)}",
+                                                  fg=T.TEXT_GOOD)
+        except OSError as exc:
+            self._active_replay_status.configure(text=f"Could not save: {exc}", fg=T.TEXT_BAD)
+
+    def _copy_replay_code(self):
+        replay = build_replay_dict(self.state, self._final_elapsed())
+        code = replay_to_code(replay)
+        self.clipboard_clear()
+        self.clipboard_append(code)
+        self.update()
+        self._active_replay_status.configure(
+            text=f"Replay code copied to clipboard ({len(code)} characters).", fg=T.TEXT_GOOD)
+
+    def _open_replay_picker(self):
+        self.mode = "replay_picker"
+        self.replay_picker_status.configure(text="")
+        self.replay_code_text.delete("1.0", tk.END)
+        self.replay_picker_frame.place(relx=0.5, rely=0.5, anchor="center")
+
+    def _close_replay_picker(self):
+        self.replay_picker_frame.place_forget()
+        self.mode = "title"
+
+    def _load_replay_file(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(filetypes=[("Replay files", "*.json"),
+                                                       ("All files", "*.*")])
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                text = f.read()
+            self._start_watch_replay(replay_from_text(text))
+        except (OSError, ValueError) as exc:
+            self.replay_picker_status.configure(text=f"Could not load replay: {exc}")
+
+    def _play_pasted_code(self):
+        text = self.replay_code_text.get("1.0", tk.END).strip()
+        if not text:
+            self.replay_picker_status.configure(text="Paste a replay code first.")
+            return
+        try:
+            self._start_watch_replay(replay_from_text(text))
+        except ValueError as exc:
+            self.replay_picker_status.configure(text=str(exc))
+
+    def _start_watch_replay(self, replay_dict: dict):
+        try:
+            self._replay = ReplayPlayer(replay_dict)
+        except (ValueError, KeyError, TypeError) as exc:
+            self.replay_picker_status.configure(text=f"Invalid replay: {exc}")
+            return
+        self.state = self._replay.state
+        self._hide_all()
+        self.mode = "replay"
+        self._replay_paused = False
+        self._replay_speed_idx = 0
+        self._fx = []
+        self.play_frame.pack(expand=True)
+        self.focus_set()
+        self._render()
+        self._update_music()
+        self.after(400, self._replay_tick)
+
+    def _replay_tick(self):
+        if self._closing or self.mode != "replay" or self._replay_paused:
+            return
+        if self._replay.finished:
+            self.after(1200, self._stop_replay)
+            return
+        self._replay.step()
+        # Read-only playback: same event->sound/fx pipeline as live play,
+        # but never save_game / record_run / record_speedrun_run.
+        self._drain_events()
+        self._render()
+        self._update_music()
+        self._update_replay_footer()
+        self.after(REPLAY_SPEEDS[self._replay_speed_idx][1], self._replay_tick)
+
+    def _update_replay_footer(self):
+        speed = REPLAY_SPEEDS[self._replay_speed_idx][0]
+        state_txt = "PAUSED" if self._replay_paused else "PLAYING"
+        self.footer_label.configure(
+            text=(f"REPLAY {state_txt} {self._replay.cursor}/{len(self._replay.actions)} "
+                  f"({speed})  |  Space: pause  |  S: speed/skip  |  Esc: stop"))
+
+    def _toggle_replay_pause(self):
+        self._replay_paused = not self._replay_paused
+        self._update_replay_footer()
+        if not self._replay_paused:
+            self._replay_tick()
+
+    def _cycle_replay_speed(self):
+        if self._replay_speed_idx < len(REPLAY_SPEEDS) - 1:
+            self._replay_speed_idx += 1
+            self._update_replay_footer()
+        else:
+            self._replay.run_to_end()
+            self.state.take_events()
+            self._render()
+            self.after(1200, self._stop_replay)
+
+    def _stop_replay(self):
+        if self.mode != "replay":
+            return
+        self._replay = None
+        self._update_footer()
+        self._show_title()
 
     def _on_close(self):
         self._closing = True
@@ -458,6 +774,19 @@ class App(tk.Tk):
     # ------------------------------------------------------------------
     def _on_key(self, event):
         if self._closing or self.mode == "dying":
+            return
+        # While a text-entry widget has focus, don't treat letters as
+        # shortcuts (typing a seed or pasting a replay code must be safe).
+        focused = self.focus_get()
+        if focused is getattr(self, "seed_entry", None):
+            if event.keysym == "Return":
+                self._start_new_game()
+            elif event.keysym == "Escape":
+                self.focus_set()
+            return
+        if focused is getattr(self, "replay_code_text", None):
+            if event.keysym == "Escape":
+                self._close_replay_picker()
             return
         if event.keysym in ("m", "M"):
             self._toggle_mute()
@@ -494,10 +823,25 @@ class App(tk.Tk):
         elif self.mode == "title":
             if event.keysym in ("Return", "n", "N"):
                 self._start_new_game()
+            elif event.keysym in ("r", "R"):
+                self._start_speedrun()
             elif event.keysym in ("c", "C") and str(self.continue_button["state"]) == "normal":
                 self._continue_game()
+            elif event.keysym in ("v", "V"):
+                self._open_replay_picker()
             elif event.keysym in ("l", "L"):
                 self._show_lore(first_time=False)
+        elif self.mode == "replay_picker":
+            if event.keysym == "Escape":
+                self._close_replay_picker()
+        elif self.mode == "replay":
+            ks = event.keysym
+            if ks == "space":
+                self._toggle_replay_pause()
+            elif ks in ("s", "S"):
+                self._cycle_replay_speed()
+            elif ks == "Escape":
+                self._stop_replay()
         elif self.mode == "lore":
             ks = event.keysym
             if ks in ("Right", "Return", "space"):
@@ -507,7 +851,10 @@ class App(tk.Tk):
             elif ks == "Escape":
                 self._finish_lore()
         elif self.mode == "gameover":
-            self._show_title()
+            # Only deliberate keys leave the end screen - a stray keypress
+            # shouldn't skip past the Save Replay buttons.
+            if event.keysym in ("Return", "Escape"):
+                self._show_title()
 
     def _toggle_fullscreen(self):
         self._fullscreen = not self._fullscreen
@@ -543,9 +890,10 @@ class App(tk.Tk):
         save_module.save_game(self.state)
         self._drain_events()
         if self.state.game_over:
+            self._elapsed_at_end = time.monotonic() - self._run_started_at
             self.mode = "dying"
             self._render()
-            self.after(900, self._show_gameover)
+            self.after(900, self._show_victory if self.state.game_won else self._show_gameover)
             return
         if self.state.pending_shop:
             self._open_shop()
@@ -810,9 +1158,10 @@ class App(tk.Tk):
             self._refresh_inventory()
             self._render()
             if self.state.game_over:
+                self._elapsed_at_end = time.monotonic() - self._run_started_at
                 self._close_overlay()
                 self.mode = "dying"
-                self.after(900, self._show_gameover)
+                self.after(900, self._show_victory if self.state.game_won else self._show_gameover)
 
     def _inventory_equip(self):
         item = self.inv_panel.selected_item()
@@ -1037,9 +1386,30 @@ class App(tk.Tk):
         px, py = (player.x - cam_x) * ts, (player.y - cam_y) * ts
         canvas.create_image(px, py, image=self._hero_sprite(), anchor="nw")
 
+    def _copy_seed(self):
+        if self.state is None:
+            return
+        self.clipboard_clear()
+        self.clipboard_append(str(self.state.seed))
+        self.update()
+        self.seed_label.configure(text=f"Seed: {self.state.seed} (copied!)")
+
+    def _stopwatch_tick(self):
+        if self._closing:
+            return
+        if (self.mode in ("play", "inventory", "shop") and self.state
+                and self.state.mode == "speedrun" and not self.state.game_over):
+            elapsed = time.monotonic() - self._run_started_at
+            self.timer_label.configure(
+                text=f"Time: {_fmt_time(elapsed)}  (goal: floor {self.state.target_floor})")
+        self.after(300, self._stopwatch_tick)
+
     def _render_panel(self):
         p = self.state.player
         self.depth_label.configure(text=f"Depth: {self.state.depth}")
+        self.seed_label.configure(text=f"Seed: {self.state.seed} (click to copy)")
+        if self.state.mode != "speedrun":
+            self.timer_label.configure(text="")
         self.level_label.configure(text=f"Level: {p.level}   XP: {p.xp}/{p.xp_to_next}")
         self._draw_bar(self.hp_bar, p.hp / max(1, p.max_hp), "#e05656",
                         "#3a2020", f"HP  {p.hp}/{p.max_hp}")

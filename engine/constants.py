@@ -88,3 +88,8 @@ MAX_LOG_LINES = 200
 SAVE_FILE = "save.json"
 HIGHSCORE_FILE = "highscores.json"
 MAX_HIGHSCORES = 10
+
+# --- Speedrun mode ---------------------------------------------------------
+SPEEDRUN_TARGET_FLOOR = 100
+SPEEDRUN_SCORE_FILE = "speedrun_scores.json"
+MAX_SPEEDRUN_SCORES = 10

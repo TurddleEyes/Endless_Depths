@@ -54,8 +54,21 @@ def _bfs_next_step(floor, start, goal, blocked):
 
 
 class GameState:
-    def __init__(self, seed=None):
-        self.rng = random.Random(seed)
+    def __init__(self, seed=None, mode="normal", target_floor=None):
+        if seed is None:
+            # Mint a concrete, displayable seed. SystemRandom is used ONLY
+            # here - all gameplay randomness flows through self.rng, so a
+            # run is fully reproducible from (seed, action_log).
+            seed = random.SystemRandom().randrange(1, 2**31 - 1)
+        self.seed = int(seed)
+        self.rng = random.Random(self.seed)
+        self.mode = mode  # "normal" | "speedrun"
+        self.target_floor = target_floor or C.SPEEDRUN_TARGET_FLOOR
+        self.game_won = False
+        # False only for states rebuilt via from_dict() - those regenerate
+        # their floor with a fresh RNG, so they can never replay faithfully.
+        self.replayable = True
+        self.action_log: list = []  # full history, never trimmed
         self.player = Player()
         self.depth = 0
         self.floor = None
@@ -63,6 +76,9 @@ class GameState:
         self.events: list = []
         self.game_over = False
         self.pending_shop = False
+
+    def _record(self, code: str, *params):
+        self.action_log.append([code, *params] if params else [code])
 
     # ------------------------------------------------------------------
     # Setup
@@ -98,6 +114,7 @@ class GameState:
     # Player actions
     # ------------------------------------------------------------------
     def try_move_player(self, dx: int, dy: int):
+        self._record("m", dx, dy)
         if self.game_over or self.pending_shop:
             return
         floor = self.floor
@@ -142,6 +159,7 @@ class GameState:
 
     def wait(self):
         """Pass a turn without moving."""
+        self._record("w")
         if self.game_over or self.pending_shop:
             return
         self._end_turn()
@@ -220,6 +238,13 @@ class GameState:
         self._emit("descend", boss_floor=boss_floor)
         if boss_floor:
             self._log("A terrible presence stirs on this floor...")
+        if self.mode == "speedrun" and self.depth >= self.target_floor and not self.game_over:
+            # Victory reuses game_over as the "run has ended, stop accepting
+            # input" flag; game_won distinguishes escape from death.
+            self.game_won = True
+            self.game_over = True
+            self._log(f"You reach floor {self.target_floor} and escape the depths with your life!")
+            self._emit("victory")
 
     def _die(self):
         self.player.hp = 0
@@ -230,6 +255,9 @@ class GameState:
     def use_item(self, item):
         if item not in self.player.inventory or self.game_over:
             return
+        # Replays reference items by list index (item.id is a process-global
+        # counter and not reproducible across runs).
+        self._record("u", self.player.inventory.index(item))
         msg = apply_item_effect(self.player, item)
         if msg == "__TELEPORT__":
             self._teleport_player()
@@ -263,12 +291,14 @@ class GameState:
     def equip_item(self, item):
         if item not in self.player.inventory:
             return
+        self._record("e", self.player.inventory.index(item))
         self._log(self.player.equip(item))
         self._emit("equip")
 
     def drop_item(self, item):
         if item not in self.player.inventory:
             return
+        self._record("d", self.player.inventory.index(item))
         if self.player.equipped_weapon is item:
             self.player.equipped_weapon = None
         if self.player.equipped_armor is item:
@@ -295,18 +325,25 @@ class GameState:
     # Shop
     # ------------------------------------------------------------------
     def buy_item(self, item):
+        if item in self.floor.shop_stock:
+            # Record even if the purchase then fails (e.g. not enough gold):
+            # the failure is deterministic, so replay fails identically.
+            self._record("b", self.floor.shop_stock.index(item))
         ok, msg = shop_module.buy(self.player, self.floor.shop_stock, item)
         self._log(msg)
         if ok:
             self._emit("buy")
 
     def sell_item(self, item):
+        if item in self.player.inventory:
+            self._record("s", self.player.inventory.index(item))
         ok, msg = shop_module.sell(self.player, item)
         self._log(msg)
         if ok:
             self._emit("sell")
 
     def close_shop(self):
+        self._record("c")
         self.pending_shop = False
 
     # ------------------------------------------------------------------
@@ -399,5 +436,8 @@ class GameState:
         state.depth = data["depth"]
         state._enter_floor(regenerate=True)
         state.log = list(data.get("log", []))
+        # The floor was regenerated with a fresh RNG, so this run can no
+        # longer be reproduced from a seed - replay saving is disabled.
+        state.replayable = False
         state._log(f"-- Welcome back. Resuming on floor {state.depth}. --")
         return state

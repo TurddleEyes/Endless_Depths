@@ -27,6 +27,13 @@ external dependencies. Playable two ways:
 - All music and sound effects are synthesized from code at first launch —
   no asset files
 - Single-slot autosave (permadeath deletes it) and a local high-score table
+- A lore intro, seed sharing (type a friend's seed to play their exact
+  dungeon), and a **speedrun mode**: race to floor 100 against a live
+  stopwatch with its own leaderboard
+- **Full replay recording**: every run can be saved as a small file or
+  copied as a text code, shared anywhere, and watched back like a movie
+  (pause, 2x speed, skip to end) - replays are bit-exact because all game
+  randomness flows from one seed
 
 ## Play in the browser
 

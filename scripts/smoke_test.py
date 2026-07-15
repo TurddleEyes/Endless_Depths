@@ -387,6 +387,173 @@ def test_audio_generation():
     print(f"OK: all {len(names)} audio files synthesize as valid WAVs")
 
 
+def test_seed_always_populated():
+    assert GameState().seed is not None
+    assert GameState(seed=42).seed == 42
+    a, b = GameState(), GameState()
+    assert isinstance(a.seed, int) and isinstance(b.seed, int)
+    print("OK: every GameState has a concrete integer seed")
+
+
+def test_speedrun_victory_condition():
+    state = GameState(seed=5, mode="speedrun", target_floor=3)
+    state.new_game()
+    state.take_events()
+    state.depth = 2
+    state._descend()
+    assert state.game_won and state.game_over
+    assert any(e["type"] == "victory" for e in state.take_events())
+    # A normal-mode game must never trigger victory.
+    normal = GameState(seed=5, mode="normal")
+    normal.new_game()
+    normal.depth = 500
+    normal._descend()
+    assert not normal.game_won
+    print("OK: speedrun victory fires at target floor; normal mode never does")
+
+
+def _run_scripted_bot(state, max_iters=20000, stop_depth=12):
+    """Drive a GameState through its 8 public methods only (so every action
+    is recorded), using the same heuristics as the playthrough test."""
+    import random
+    from engine.world import _bfs_next_step
+    rng = random.Random(999)
+    state.new_game()
+    state.take_events()
+
+    while max_iters > 0 and not state.game_over and state.depth < stop_depth:
+        max_iters -= 1
+        if state.pending_shop:
+            if state.floor.shop_stock and state.player.gold >= state.floor.shop_stock[0].value:
+                state.buy_item(state.floor.shop_stock[0])
+            state.close_shop()
+            continue
+        for item in list(state.player.inventory):
+            if item.category == "weapon" and (
+                state.player.equipped_weapon is None
+                or item.bonus_attack > state.player.equipped_weapon.bonus_attack
+            ):
+                state.equip_item(item)
+            elif item.category == "armor" and (
+                state.player.equipped_armor is None
+                or item.bonus_defense > state.player.equipped_armor.bonus_defense
+            ):
+                state.equip_item(item)
+        if state.player.hp < state.player.max_hp * 0.65:
+            pot = next((i for i in state.player.inventory
+                        if i.category == "potion" and i.effect == "heal"), None)
+            if pot:
+                state.use_item(pot)
+                continue
+        pos = (state.player.x, state.player.y)
+        step = _bfs_next_step(state.floor, pos, state.floor.stairs_pos, blocked=set())
+        if step is None:
+            dx, dy = rng.choice([(1, 0), (-1, 0), (0, 1), (0, -1)])
+        else:
+            dx, dy = step[0] - pos[0], step[1] - pos[1]
+        state.try_move_player(dx, dy)
+    return state
+
+
+def _state_fingerprint(state):
+    """Everything that should match after a faithful replay. Item ids are
+    excluded - they come from a process-global counter."""
+    def item_key(i):
+        d = i.to_dict()
+        d.pop("id", None)
+        return d
+    return {
+        "depth": state.depth,
+        "hp": state.player.hp,
+        "max_hp": state.player.max_hp,
+        "gold": state.player.gold,
+        "level": state.player.level,
+        "xp": state.player.xp,
+        "turns": state.player.turns,
+        "kills": state.player.kills,
+        "pos": (state.player.x, state.player.y),
+        "inventory": [item_key(i) for i in state.player.inventory],
+        "tiles": ["".join(r) for r in state.floor.tiles],
+        "monsters": sorted((m.x, m.y, m.hp, m.name) for m in state.floor.monsters),
+        "game_over": state.game_over,
+        "game_won": state.game_won,
+    }
+
+
+def test_replay_fidelity_full_playthrough():
+    from engine.replay import build_replay_dict, ReplayPlayer, replay_to_code, replay_from_text
+
+    seed = 20260715
+    original = _run_scripted_bot(GameState(seed=seed, mode="speedrun", target_floor=8))
+    assert original.depth >= 2, "bot should have made progress"
+    assert len(original.action_log) > 50
+
+    replay = build_replay_dict(original, elapsed_seconds=12.3)
+    assert replay["actions"] == original.action_log
+    assert replay["seed"] == seed
+
+    # Round-trip through the shareable text code too.
+    replay = replay_from_text(replay_to_code(replay))
+
+    player = ReplayPlayer(replay)
+    player.run_to_end()
+    a, b = _state_fingerprint(original), _state_fingerprint(player.state)
+    for key in a:
+        assert a[key] == b[key], f"replay mismatch on {key}: {a[key]!r} != {b[key]!r}"
+    print(f"OK: full-playthrough replay is bit-exact "
+          f"({len(replay['actions'])} actions, reached depth {original.depth}, "
+          f"won={original.game_won})")
+
+
+def test_replay_rejects_garbage_gracefully():
+    from engine.replay import ReplayPlayer, build_replay_dict, replay_from_text
+
+    state = GameState(seed=3)
+    state.new_game()
+    state.try_move_player(1, 0)
+    state.wait()
+    replay = build_replay_dict(state, 1.0)
+    # Corrupt an action's index and inject a nonsense action.
+    replay["actions"].append(["u", 999])
+    replay["actions"].append(["zzz"])
+    player = ReplayPlayer(replay)
+    player.run_to_end()  # must not raise
+
+    try:
+        ReplayPlayer({"game": "something_else", "version": 1})
+        assert False, "foreign replay should be rejected"
+    except ValueError:
+        pass
+    try:
+        replay_from_text("!!!not json or base64!!!")
+        assert False, "garbage text should be rejected"
+    except ValueError:
+        pass
+    print("OK: corrupt indices are tolerated; foreign/garbage replays are rejected")
+
+
+def test_continued_save_not_replayable():
+    state = GameState(seed=9)
+    state.new_game()
+    restored = GameState.from_dict(state.to_dict())
+    assert restored.replayable is False
+    assert state.replayable is True
+    print("OK: continued saves are flagged non-replayable")
+
+
+def test_speedrun_leaderboard_sorting():
+    from engine.save import speedrun_sort_key
+    runs = [
+        {"finished": False, "depth_reached": 40, "elapsed_seconds": 100},
+        {"finished": True, "depth_reached": 100, "elapsed_seconds": 900},
+        {"finished": False, "depth_reached": 55, "elapsed_seconds": 800},
+        {"finished": True, "depth_reached": 100, "elapsed_seconds": 600},
+    ]
+    runs.sort(key=speedrun_sort_key)
+    assert [r["elapsed_seconds"] for r in runs] == [600, 900, 800, 100]
+    print("OK: speedrun leaderboard sorts finishers by time, then DNFs by depth")
+
+
 def test_engine_has_no_tkinter_dependency():
     assert "tkinter" not in sys.modules, "engine modules must never import tkinter"
     print("OK: engine package has no tkinter import")
@@ -409,6 +576,12 @@ if __name__ == "__main__":
     test_wait_and_events()
     test_full_playthrough_simulation()
     test_save_load_roundtrip(scratch_save)
+    test_seed_always_populated()
+    test_speedrun_victory_condition()
+    test_replay_fidelity_full_playthrough()
+    test_replay_rejects_garbage_gracefully()
+    test_continued_save_not_replayable()
+    test_speedrun_leaderboard_sorting()
     test_engine_has_no_tkinter_dependency()
     test_audio_generation()
     print("\nAll headless engine smoke tests passed.")

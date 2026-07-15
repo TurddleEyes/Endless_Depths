@@ -17,11 +17,34 @@
     <canvas id="title-hero" width="128" height="128"></canvas>
     <div id="loading-status">Loading Python engine&hellip;</div>
     <div id="title-buttons" class="hidden">
+      <div id="seed-row">
+        <label for="seed-input">Seed (optional):</label>
+        <input id="seed-input" type="text" inputmode="numeric" placeholder="random">
+      </div>
       <button id="btn-new">New Game (N)</button>
+      <button id="btn-speedrun">Speedrun to Floor 100 (R)</button>
       <button id="btn-continue" disabled>Continue (C)</button>
+      <button id="btn-watch">Watch Replay (V)</button>
       <button id="btn-lore">Lore (L)</button>
     </div>
-    <pre id="title-highscores"></pre>
+    <div id="title-scores-row">
+      <pre id="title-highscores"></pre>
+      <pre id="title-speedrun-scores"></pre>
+    </div>
+  </div>
+
+  <!-- Watch Replay picker -->
+  <div id="replay-picker" class="screen hidden">
+    <h2>Watch Replay</h2>
+    <p class="subtitle">Load a replay file or paste a replay code.</p>
+    <input type="file" id="replay-file-input" accept=".json,application/json">
+    <p class="subtitle">or paste a code:</p>
+    <textarea id="replay-code-input" rows="5" spellcheck="false"></textarea>
+    <div id="replay-error" class="error-text"></div>
+    <div>
+      <button id="replay-play-btn">Play Pasted Code</button>
+      <button id="replay-cancel-btn">Cancel (Esc)</button>
+    </div>
   </div>
 
   <!-- Lore screen -->
@@ -45,7 +68,9 @@
       <div id="side-panel">
         <h2>ENDLESS DEPTHS</h2>
         <div id="stat-depth">Depth: 1</div>
+        <div id="stat-timer" class="timer hidden"></div>
         <div id="stat-level">Level: 1</div>
+        <div id="stat-seed" class="seed" title="Click to copy">Seed: -</div>
         <div class="bar"><div id="hp-fill" class="bar-fill hp"></div><span id="hp-text"></span></div>
         <div class="bar thin"><div id="xp-fill" class="bar-fill xp"></div></div>
         <div id="stat-status">Status: Healthy</div>
@@ -121,12 +146,39 @@
     </div>
   </div>
 
+  <!-- Replay playback controls (visible only while watching a replay) -->
+  <div id="replay-controls" class="hidden">
+    <span id="replay-progress">0/0</span>
+    <button id="replay-pause-btn">Pause</button>
+    <button id="replay-speed-btn">Speed: 1x</button>
+    <button id="replay-stop-btn">Stop (Esc)</button>
+  </div>
+
   <!-- Game over screen -->
   <div id="gameover-screen" class="screen hidden">
     <h1 class="died">YOU DIED</h1>
     <pre id="gameover-stats"></pre>
     <pre id="gameover-highscores"></pre>
+    <div id="gameover-replay-row">
+      <button id="gameover-save-replay">Save Replay File</button>
+      <button id="gameover-copy-replay">Copy Replay Code</button>
+    </div>
+    <div id="gameover-replay-status" class="status-text"></div>
     <button id="btn-title">Return to Title</button>
+  </div>
+
+  <!-- Victory screen (speedrun finish) -->
+  <div id="victory-screen" class="screen hidden">
+    <h1 class="victory">VICTORY!</h1>
+    <p class="subtitle">You escaped the Endless Depths.</p>
+    <pre id="victory-stats"></pre>
+    <pre id="victory-scores"></pre>
+    <div id="victory-replay-row">
+      <button id="victory-save-replay">Save Replay File</button>
+      <button id="victory-copy-replay">Copy Replay Code</button>
+    </div>
+    <div id="victory-replay-status" class="status-text"></div>
+    <button id="victory-title-btn">Return to Title</button>
   </div>
 
 </div>

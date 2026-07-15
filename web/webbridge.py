@@ -11,6 +11,7 @@ import json
 
 from engine import constants as C
 from engine.world import GameState
+from engine import replay as replay_module
 from ui import spritedata as S
 from ui.iteminfo import RARITY_COLORS, describe_item, sell_price
 from ui import audio as audio_synth
@@ -21,6 +22,7 @@ from ui import lore as lore_data
 audio_synth.SAMPLE_RATE = 11025
 
 STATE: GameState | None = None
+REPLAY: replay_module.ReplayPlayer | None = None
 _last_floor_depth = None
 
 
@@ -66,12 +68,14 @@ def synth_wav_b64(name: str) -> str:
 # ----------------------------------------------------------------------
 # Game lifecycle
 # ----------------------------------------------------------------------
-def new_game() -> str:
-    global STATE, _last_floor_depth
-    STATE = GameState()
+def new_game(seed=None, mode="normal") -> str:
+    global STATE, REPLAY, _last_floor_depth
+    seed = int(seed) if seed not in (None, "") else None
+    STATE = GameState(seed=seed, mode=mode)
     STATE.new_game()
     STATE.take_events()
     _last_floor_depth = None
+    REPLAY = None
     return snapshot_json()
 
 
@@ -89,6 +93,44 @@ def load_game(save_json: str) -> str:
 
 def save_json() -> str:
     return json.dumps(STATE.to_dict())
+
+
+# ----------------------------------------------------------------------
+# Replays
+# ----------------------------------------------------------------------
+def save_replay(elapsed_seconds) -> str:
+    return json.dumps(replay_module.build_replay_dict(STATE, float(elapsed_seconds)))
+
+
+def load_replay(replay_text: str) -> str:
+    """Accepts raw replay JSON or a base64 code; starts playback mode."""
+    global STATE, REPLAY, _last_floor_depth
+    try:
+        REPLAY = replay_module.ReplayPlayer(replay_module.replay_from_text(replay_text))
+    except (ValueError, KeyError, TypeError):
+        return json.dumps({"error": "bad_replay"})
+    STATE = REPLAY.state
+    _last_floor_depth = None
+    return snapshot_json()
+
+
+def replay_step() -> str:
+    if REPLAY is not None:
+        REPLAY.step()
+    return snapshot_json()
+
+
+def replay_skip_to_end() -> str:
+    if REPLAY is not None:
+        REPLAY.run_to_end()
+    return snapshot_json()
+
+
+def replay_progress() -> str:
+    if REPLAY is None:
+        return json.dumps({"cursor": 0, "total": 0, "finished": True})
+    return json.dumps({"cursor": REPLAY.cursor, "total": len(REPLAY.actions),
+                        "finished": REPLAY.finished})
 
 
 # ----------------------------------------------------------------------
@@ -246,6 +288,11 @@ def snapshot_json() -> str:
         "depth": STATE.depth,
         "floor_changed": floor_changed,
         "game_over": STATE.game_over,
+        "game_won": STATE.game_won,
+        "seed": STATE.seed,
+        "run_mode": STATE.mode,
+        "target_floor": STATE.target_floor,
+        "replayable": STATE.replayable,
         "cause_of_death": cause,
         "shop_open": STATE.pending_shop,
         "boss_alive": any(m.is_boss and m.is_alive() for m in floor.monsters),

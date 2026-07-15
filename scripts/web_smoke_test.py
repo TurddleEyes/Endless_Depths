@@ -116,6 +116,56 @@ def test_save_load_roundtrip():
     print("OK: save/load round-trips through JSON; corrupt saves are rejected")
 
 
+def test_seed_and_mode_in_snapshot():
+    snap = json.loads(webbridge.new_game(seed=42, mode="speedrun"))
+    assert snap["seed"] == 42
+    assert snap["run_mode"] == "speedrun"
+    assert snap["target_floor"] == 100
+    assert snap["replayable"] is True
+    snap = json.loads(webbridge.new_game())
+    assert isinstance(snap["seed"], int) and snap["run_mode"] == "normal"
+    print("OK: snapshots expose seed, run mode, target floor and replayability")
+
+
+def test_replay_round_trip_through_bridge():
+    from engine.world import _bfs_next_step
+
+    json.loads(webbridge.new_game(seed=7, mode="speedrun"))
+    state = webbridge.STATE
+    state.target_floor = 2  # tiny race for the test
+    # Walk to the stairs via the bridge API so actions are recorded.
+    for _ in range(400):
+        if state.game_over:
+            break
+        if state.pending_shop:
+            webbridge.close_shop()
+            continue
+        pos = (state.player.x, state.player.y)
+        step = _bfs_next_step(state.floor, pos, state.floor.stairs_pos, blocked=set())
+        if step is None:
+            break
+        webbridge.move(step[0] - pos[0], step[1] - pos[1])
+    snap = json.loads(webbridge.snapshot_json())
+    assert snap["game_won"], "test bot should win the 2-floor race"
+
+    replay_text = webbridge.save_replay(9.5)
+    replay = json.loads(replay_text)
+    assert replay["seed"] == 7 and replay["result"]["outcome"] == "victory"
+
+    result = json.loads(webbridge.load_replay(replay_text))
+    assert "error" not in result
+    steps = 0
+    while not json.loads(webbridge.replay_progress())["finished"]:
+        webbridge.replay_step()
+        steps += 1
+        assert steps < 10000
+    final = json.loads(webbridge.snapshot_json())
+    assert final["game_won"] is True, "replayed run must reach the same victory"
+    assert final["player"]["gold"] == snap["player"]["gold"]
+    assert json.loads(webbridge.load_replay("garbage!!!")).get("error") == "bad_replay"
+    print(f"OK: bridge replay round-trip reproduces the victory in {steps} steps")
+
+
 def test_lore():
     data = json.loads(webbridge.lore_json())
     assert data["title"]
@@ -140,6 +190,8 @@ if __name__ == "__main__":
     test_game_flow()
     test_inventory_and_shop()
     test_save_load_roundtrip()
+    test_seed_and_mode_in_snapshot()
+    test_replay_round_trip_through_bridge()
     test_lore()
     test_audio_synth()
     print("\nAll web-bridge smoke tests passed.")
