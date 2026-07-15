@@ -80,12 +80,14 @@ async function boot() {
   status.textContent = "Loading game code…";
   pyodide.FS.mkdirTree("/game/engine");
   pyodide.FS.mkdirTree("/game/ui");
+  // cache: "no-cache" revalidates with the server (ETag) on every load, so
+  // a stale cached engine can never mismatch a freshly deployed one.
   for (const path of PY_FILES) {
-    const resp = await fetch(path);
+    const resp = await fetch(path, { cache: "no-cache" });
     if (!resp.ok) throw new Error("failed to fetch " + path);
     pyodide.FS.writeFile("/game/" + path, await resp.text());
   }
-  const wb = await fetch("web/webbridge.py");
+  const wb = await fetch("web/webbridge.py", { cache: "no-cache" });
   pyodide.FS.writeFile("/game/webbridge.py", await wb.text());
   pyodide.runPython("import sys; sys.path.insert(0, '/game')");
   bridge = pyodide.pyimport("webbridge");
