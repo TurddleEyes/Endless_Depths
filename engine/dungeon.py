@@ -6,7 +6,8 @@ from typing import Optional
 
 from . import constants as C
 from .entities import Monster, generate_monster
-from .items import Item, generate_item
+from .items import Item, generate_item, make_key
+from . import puzzles as puzzle_module
 
 
 @dataclass
@@ -45,6 +46,16 @@ class Trap:
 
 
 @dataclass
+class Chest:
+    x: int
+    y: int
+    kind: str  # plain, trapped, locked, mimic
+    items: list = field(default_factory=list)
+    gold: int = 0
+    trap_kind: Optional[str] = None  # dart, gas (trapped chests only)
+
+
+@dataclass
 class Floor:
     depth: int
     width: int
@@ -57,6 +68,12 @@ class Floor:
     traps: list = field(default_factory=list)
     shop_pos: Optional[tuple] = None
     shop_stock: list = field(default_factory=list)
+    chests: list = field(default_factory=list)
+    puzzle: Optional[dict] = None
+    # Bumped by GameState._set_tile whenever the map mutates mid-floor
+    # (door dissolving, chest opened, block pushed) so the web renderer
+    # knows to re-fetch its static floor data.
+    tiles_version: int = 0
     explored: list = field(default_factory=list)
     visible: list = field(default_factory=list)
 
@@ -64,10 +81,10 @@ class Floor:
         return 0 <= x < self.width and 0 <= y < self.height
 
     def is_walkable(self, x: int, y: int) -> bool:
-        # The shopkeeper's tile is not walkable: the player opens the shop by
-        # bumping into it (handled before this check), and monsters/pathing
-        # must route around it rather than standing on the shopkeeper.
-        return self.in_bounds(x, y) and self.tiles[y][x] not in (C.TILE_WALL, C.TILE_SHOPKEEPER)
+        # Interactable tiles (shopkeeper, sealed door, chest, lever, block)
+        # are not walkable: the player triggers them by bumping (handled
+        # before this check), and monsters/pathing must route around them.
+        return self.in_bounds(x, y) and self.tiles[y][x] not in C.SOLID_TILES
 
     def monster_at(self, x: int, y: int) -> Optional[Monster]:
         for m in self.monsters:
@@ -85,6 +102,12 @@ class Floor:
         for t in self.traps:
             if t.x == x and t.y == y:
                 return t
+        return None
+
+    def chest_at(self, x: int, y: int) -> Optional["Chest"]:
+        for c in self.chests:
+            if c.x == x and c.y == y:
+                return c
         return None
 
 
@@ -165,7 +188,7 @@ def generate_floor(depth: int, rng) -> Floor:
     is_boss_floor = depth % C.BOSS_INTERVAL == 0
     monster_rooms = usable_rooms or [r for r in rooms if r is not start_room]
     n_monsters = min(len(monster_rooms) + rng.randint(0, 2), max(1, 2 + depth // 2))
-    n_monsters = min(n_monsters, 10)
+    n_monsters = min(n_monsters, 12)
 
     occupied = set()
     for i in range(n_monsters):
@@ -180,8 +203,11 @@ def generate_floor(depth: int, rng) -> Floor:
                 break
 
     ground_items = []
-    n_items = rng.randint(2, 4) + depth // 4
-    n_items = min(n_items, 8)
+    # Loot density tracks the 60x32 map: the old 2-4 items on a 48x26 grid
+    # left early floors too barren to find a starting weapon before the
+    # depth-scaled monsters catch up with a level-1 adventurer.
+    n_items = rng.randint(3, 6) + depth // 4
+    n_items = min(n_items, 10)
     for _ in range(n_items):
         room = rng.choice(rooms)
         for _ in range(10):
@@ -194,7 +220,7 @@ def generate_floor(depth: int, rng) -> Floor:
 
     traps = []
     start_center = start_room.center
-    n_traps = min(rng.randint(0, 2) + depth // 5, 5)
+    n_traps = min(rng.randint(0, 2) + depth // 5, 6)
     trap_kinds = ["spike", "spike", "spike", "poison", "poison", "teleport"]
     for _ in range(n_traps):
         room = rng.choice(rooms)
@@ -205,6 +231,81 @@ def generate_floor(depth: int, rng) -> Floor:
                 occupied.add((tx, ty))
                 traps.append(Trap(tx, ty, rng.choice(trap_kinds)))
                 break
+
+    # Chests. Solid tiles may only sit on a room's strict interior: corridor
+    # mouths live on the boundary ring, and a solid tile there could seal a
+    # room's only entrance. Interior tiles always have an open ring around
+    # them, so a chest can never disconnect the floor.
+    chests = []
+    n_chests = 1 if rng.random() < C.CHEST_CHANCE else 0
+    if depth >= 10 and rng.random() < C.CHEST_SECOND_CHANCE:
+        n_chests += 1
+    chest_rooms = [r for r in rooms if r is not start_room]
+    for _ in range(n_chests):
+        pos, chest_room = None, None
+        for _ in range(10):
+            room = rng.choice(chest_rooms)
+            cx = rng.randint(room.x + 1, room.x + room.w - 2)
+            cy = rng.randint(room.y + 1, room.y + room.h - 2)
+            if tiles[cy][cx] == C.TILE_FLOOR and (cx, cy) not in occupied:
+                pos, chest_room = (cx, cy), room
+                break
+        if pos is None:
+            continue
+        occupied.add(pos)
+        kind = rng.choices(("plain", "trapped", "locked", "mimic"),
+                           weights=(50, 20, 18, 12), k=1)[0]
+        if kind == "mimic":
+            chest = Chest(pos[0], pos[1], kind)
+        else:
+            quality = 1.5 if kind in ("trapped", "locked") else 1.3
+            loot = [generate_item(depth, rng, quality_bonus=quality)
+                    for _ in range(rng.randint(1, 2))]
+            gold = round(rng.randint(10, 25) * C.gold_scale(depth))
+            if kind == "trapped":
+                gold = round(gold * 1.6)  # danger pay
+            trap_kind = rng.choice(("dart", "gas")) if kind == "trapped" else None
+            chest = Chest(pos[0], pos[1], kind, items=loot, gold=gold,
+                          trap_kind=trap_kind)
+        if kind == "locked":
+            # Hide the Iron Key in a different room; if no spot can be
+            # found the chest quietly downgrades to plain - never a softlock.
+            key_pos = None
+            for _ in range(10):
+                kroom = rng.choice([r for r in rooms if r is not chest_room])
+                kx = rng.randint(kroom.x, kroom.x + kroom.w - 1)
+                ky = rng.randint(kroom.y, kroom.y + kroom.h - 1)
+                if tiles[ky][kx] == C.TILE_FLOOR and (kx, ky) not in occupied:
+                    key_pos = (kx, ky)
+                    break
+            if key_pos is None:
+                chest.kind = "plain"
+            else:
+                occupied.add(key_pos)
+                ground_items.append(
+                    GroundItem(key_pos[0], key_pos[1], make_key("Iron Key")))
+        tiles[pos[1]][pos[0]] = C.TILE_CHEST
+        chests.append(chest)
+
+    # Puzzle floor? The stairs seal themselves behind a rune door. Never on
+    # floor 1 (learn to walk first) or boss floors (the boss IS the gate).
+    puzzle = None
+    if (depth >= C.PUZZLE_MIN_DEPTH and depth % C.BOSS_INTERVAL != 0
+            and rng.random() < C.PUZZLE_CHANCE):
+        kinds = puzzle_module.eligible_kinds(depth)
+        popup_kinds = [k for k in kinds if k not in puzzle_module.IN_DUNGEON]
+        kind = rng.choice(kinds)
+        if kind in puzzle_module.IN_DUNGEON and len(rooms) < 4:
+            kind = rng.choice(popup_kinds)
+        puzzle = puzzle_module.generate(kind, depth, rng)
+        if kind in puzzle_module.IN_DUNGEON:
+            placed = puzzle_module.place_props(
+                puzzle, rooms, tiles, occupied, stairs_pos, stairs_room,
+                start_room, ground_items, rng)
+            if not placed:  # cramped floor - fall back to a pop-up puzzle
+                kind = rng.choice(popup_kinds)
+                puzzle = puzzle_module.generate(kind, depth, rng)
+        tiles[stairs_pos[1]][stairs_pos[0]] = C.TILE_DOOR
 
     explored = [[False] * width for _ in range(height)]
     visible = [[False] * width for _ in range(height)]
@@ -221,6 +322,8 @@ def generate_floor(depth: int, rng) -> Floor:
         traps=traps,
         shop_pos=shop_pos,
         shop_stock=shop_stock,
+        chests=chests,
+        puzzle=puzzle,
         explored=explored,
         visible=visible,
     )

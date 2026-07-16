@@ -14,6 +14,7 @@ import time
 import tkinter as tk
 
 from engine import constants as C
+from engine import puzzles as puzzle_module
 from engine import save as save_module
 from engine.world import GameState
 from engine.replay import (ReplayPlayer, build_replay_dict, replay_from_text,
@@ -105,6 +106,7 @@ class App(tk.Tk):
         self._build_victory_screen()
         self._build_replay_picker()
         self._build_settings_overlay()
+        self._build_puzzle_overlay()
 
         if self.settings.get("seen_lore"):
             self._show_title()
@@ -231,6 +233,159 @@ class App(tk.Tk):
     def _close_settings(self):
         self.settings_frame.place_forget()
         self.mode = getattr(self, "_settings_return_mode", "title")
+
+    # ------------------------------------------------------------------
+    # Puzzle overlay (the sealed rune door)
+    # ------------------------------------------------------------------
+    def _build_puzzle_overlay(self):
+        self.puzzle_frame = tk.Frame(self, bg=T.PANEL_BG, highlightthickness=2,
+                                       highlightbackground=T.ACCENT)
+        f = self.puzzle_frame
+        self.puzzle_title = tk.Label(f, text="", font=T.HEADER_FONT,
+                                       bg=T.PANEL_BG, fg=T.ACCENT)
+        self.puzzle_title.pack(pady=(12, 6))
+        self.puzzle_prompt = tk.Label(f, text="", font=T.UI_FONT, bg=T.PANEL_BG,
+                                        fg=T.TEXT_MAIN, justify="left")
+        self.puzzle_prompt.pack(padx=24, pady=(0, 4))
+        # Flash panel for Counting Eyes; packed only while a grid is showing.
+        self.puzzle_flash = tk.Label(f, text="", font=("Courier", 16, "bold"),
+                                       bg=T.BG, fg=T.TEXT_WARN, justify="center")
+        self.puzzle_history = tk.Label(f, text="", font=T.UI_FONT, bg=T.PANEL_BG,
+                                         fg=T.TEXT_DIM, justify="left")
+        self.puzzle_buttons_frame = tk.Frame(f, bg=T.PANEL_BG)
+        self.puzzle_buttons_frame.pack(pady=6, padx=20)
+        self._puzzle_buttons = []
+        self.puzzle_feedback = tk.Label(f, text="", font=T.UI_FONT,
+                                          bg=T.PANEL_BG, fg=T.TEXT_WARN)
+        self.puzzle_feedback.pack(pady=(2, 2))
+        self.puzzle_close_btn = tk.Button(
+            f, text="Walk Away (Esc)", command=self._close_puzzle,
+            font=T.UI_FONT_BOLD, bg=T.BG, fg=T.TEXT_MAIN, relief="flat",
+            activebackground=T.ACCENT, activeforeground=T.BG)
+        self.puzzle_close_btn.pack(pady=(6, 14))
+        self._puzzle_locked = False   # True while a reveal animation plays
+        self._puzzle_reveal_shown = -1
+
+    def _open_puzzle(self):
+        self.mode = "puzzle"
+        self._puzzle_reveal_shown = -1  # replay the intro reveal on reopen
+        self._refresh_puzzle()
+        self.puzzle_frame.place(relx=0.5, rely=0.5, anchor="center")
+
+    def _close_puzzle(self):
+        if self.state is not None and self.state.pending_puzzle:
+            self.state.close_puzzle()
+            save_module.save_game(self.state)
+        self.puzzle_frame.place_forget()
+        self._puzzle_locked = False
+        self.mode = "play"
+        self._render()
+
+    def _puzzle_press(self, index: int):
+        if self.mode != "puzzle" or self._puzzle_locked:
+            return
+        self.state.puzzle_input(index)
+        save_module.save_game(self.state)
+        self._drain_events()
+        if not self.state.pending_puzzle:  # solved - the door is gone
+            self.puzzle_frame.place_forget()
+            self.mode = "play"
+            self._render()
+            return
+        self._render()  # summoned monsters appear behind the popup
+        self._refresh_puzzle()
+
+    def _refresh_puzzle(self):
+        view = puzzle_module.view(self.state.floor.puzzle)
+        self.puzzle_title.configure(text=view["title"])
+        self.puzzle_prompt.configure(text=view["prompt"])
+        self.puzzle_feedback.configure(text=view["feedback"])
+        if view.get("history"):
+            self.puzzle_history.configure(text="\n".join(view["history"]))
+            self.puzzle_history.pack(pady=(0, 4), before=self.puzzle_buttons_frame)
+        else:
+            self.puzzle_history.pack_forget()
+
+        for btn in self._puzzle_buttons:
+            btn.destroy()
+        self._puzzle_buttons = []
+        buttons = view["buttons"]
+        cols = max(1, view["grid_cols"])
+        width = max(4, min(44, max((len(b["label"]) for b in buttons), default=4) + 2))
+        for i, spec in enumerate(buttons):
+            lit = spec["state"] == "lit"
+            btn = tk.Button(
+                self.puzzle_buttons_frame, text=spec["label"],
+                font=T.UI_FONT_BOLD, width=width,
+                bg=T.ACCENT if lit else T.BG, fg=T.BG if lit else T.TEXT_MAIN,
+                state="disabled" if spec["state"] == "disabled" else "normal",
+                relief="flat", activebackground=T.ACCENT, activeforeground=T.BG,
+                command=lambda i=i: self._puzzle_press(i))
+            btn.grid(row=i // cols, column=i % cols, padx=3, pady=3)
+            self._puzzle_buttons.append(btn)
+        self._maybe_play_reveal(view)
+
+    def _maybe_play_reveal(self, view):
+        """Client-side flash animations (Simon melody, Counting Eyes grid,
+        Rune Pairs flip-back). Purely presentational: the engine bumps
+        reveal_id whenever a new reveal should play."""
+        rid = view.get("reveal_id", 0)
+        if rid == self._puzzle_reveal_shown:
+            return
+        self._puzzle_reveal_shown = rid
+        kind = view["kind"]
+        if kind == "echo" and view.get("reveal"):
+            self._play_echo_reveal(list(view["reveal"]))
+        elif kind == "counting_eyes" and view.get("flash_grid"):
+            self._play_flash_grid(view["flash_grid"])
+        elif kind == "rune_pairs" and view.get("reveal"):
+            self._play_pairs_reveal(view["reveal"], view.get("reveal_cards", []))
+
+    def _play_echo_reveal(self, seq):
+        self._puzzle_locked = True
+
+        def flash(i):
+            if self.mode != "puzzle" or self._closing:
+                self._puzzle_locked = False
+                return
+            if i > 0:
+                self._puzzle_buttons[seq[i - 1]].configure(bg=T.BG, fg=T.TEXT_MAIN)
+            if i >= len(seq):
+                self._puzzle_locked = False
+                return
+            self._puzzle_buttons[seq[i]].configure(bg=T.ACCENT, fg=T.BG)
+            self.audio.play("menu")
+            self.after(450, lambda: flash(i + 1))
+
+        self.after(350, lambda: flash(0))
+
+    def _play_flash_grid(self, rows):
+        self._puzzle_locked = True
+        self.puzzle_flash.configure(text="\n".join(rows))
+        self.puzzle_flash.pack(pady=4, before=self.puzzle_buttons_frame)
+
+        def hide():
+            self.puzzle_flash.pack_forget()
+            self._puzzle_locked = False
+
+        self.after(2000, hide)
+
+    def _play_pairs_reveal(self, indices, cards):
+        if len(indices) != 2 or len(cards) != 2:
+            return
+        self._puzzle_locked = True
+        for idx, sym in zip(indices, cards):
+            self._puzzle_buttons[idx].configure(text=sym, bg=T.ACCENT, fg=T.BG)
+
+        def hide():
+            if self.mode == "puzzle" and not self._closing:
+                for idx in indices:
+                    if idx < len(self._puzzle_buttons):
+                        self._puzzle_buttons[idx].configure(
+                            text="?", bg=T.BG, fg=T.TEXT_MAIN)
+            self._puzzle_locked = False
+
+        self.after(900, hide)
 
     def _build_lore_screen(self):
         self.lore_frame = tk.Frame(self, bg=T.BG, width=860, height=640)
@@ -540,6 +695,7 @@ class App(tk.Tk):
         self.shop_frame.place_forget()
         self.replay_picker_frame.place_forget()
         self.settings_frame.place_forget()
+        self.puzzle_frame.place_forget()
 
     def _show_title(self):
         self._hide_all()
@@ -874,6 +1030,15 @@ class App(tk.Tk):
             if event.keysym == "Escape":
                 self._close_settings()
             return
+        if self.mode == "puzzle":
+            ks = event.keysym
+            if ks == "Escape":
+                self._close_puzzle()
+            elif ks.isdigit() and ks != "0":
+                index = int(ks) - 1
+                if index < len(self._puzzle_buttons):
+                    self._puzzle_press(index)
+            return
         if self.mode == "play":
             self._handle_play_key(event)
         elif self.mode == "inventory":
@@ -980,6 +1145,10 @@ class App(tk.Tk):
             self._open_shop()
             self.audio.play("shop_bell")
             return
+        if self.state.pending_puzzle:
+            self._render()  # the door and its floor stay visible behind it
+            self._open_puzzle()
+            return
         p = self.state.player
         if p.hp <= p.max_hp * 0.25:
             self.audio.play("heartbeat")
@@ -1066,6 +1235,34 @@ class App(tk.Tk):
                 self.audio.play("death")
                 self._add_fx("flash", x=p.x, y=p.y, color="#e04848", ttl=8)
                 self._shake(7)
+            elif et == "puzzle_open":
+                self.audio.play("puzzle_open")
+            elif et == "puzzle_fail":
+                self.audio.play("puzzle_fail")
+                self._shake(4)
+            elif et == "puzzle_solved":
+                self.audio.play("unlock")
+                self._add_fx("sparkle", x=ev["x"], y=ev["y"], ttl=16)
+            elif et == "summon":
+                self.audio.play("summon")
+                self._add_fx("poof", x=ev["x"], y=ev["y"], color="#b060e0", ttl=12)
+            elif et == "chest_open":
+                self.audio.play("chest_open")
+                self._add_fx("sparkle", x=ev["x"], y=ev["y"], ttl=12)
+            elif et == "chest_locked":
+                self.audio.play("locked")
+            elif et == "unlock":
+                self.audio.play("unlock")
+            elif et == "mimic":
+                self.audio.play("mimic")
+                self._add_fx("flash", x=ev["x"], y=ev["y"], color="#e04444", ttl=4)
+                self._shake(5)
+            elif et == "lever":
+                self.audio.play("lever")
+            elif et == "plate":
+                self.audio.play("plate")
+            elif et == "push":
+                self.audio.play("push")
 
     def _update_music(self):
         if self.audio.muted or self.state is None:
@@ -1089,7 +1286,7 @@ class App(tk.Tk):
         if self._closing:
             return
         self.canvas.delete("fx")
-        if not self._fx or self.mode not in ("play", "dying", "inventory", "shop"):
+        if not self._fx or self.mode not in ("play", "dying", "inventory", "shop", "puzzle"):
             self._fx_running = False
             self._unshake()
             return
@@ -1346,9 +1543,27 @@ class App(tk.Tk):
             base = sprite_defs.WALL_VARIANTS[sprite_defs.wall_variant(depth, fx, fy)]
         elif tile == C.TILE_STAIRS:
             base = "stairs"
+        elif tile == C.TILE_LEVER:
+            base = "lever_down" if self._lever_pulled(fx, fy) else "lever_up"
+        elif tile == C.TILE_PLATE:
+            base = "plate_on" if self._plate_lit(fx, fy) else "plate_off"
+        elif tile in sprite_defs.PUZZLE_TILE_KEYS:  # door, chest, block
+            base = sprite_defs.PUZZLE_TILE_KEYS[tile]
         else:  # floor (the shopkeeper stands on a floor tile)
             base = sprite_defs.FLOOR_VARIANTS[sprite_defs.floor_variant(depth, fx, fy)]
         return base if visible else base + "_dim"
+
+    def _lever_pulled(self, x: int, y: int) -> bool:
+        pz = self.state.floor.puzzle
+        return bool(pz and pz["kind"] == "lever_order"
+                    and any(lv["pulled"] and (lv["x"], lv["y"]) == (x, y)
+                            for lv in pz["levers"]))
+
+    def _plate_lit(self, x: int, y: int) -> bool:
+        pz = self.state.floor.puzzle
+        return bool(pz and pz["kind"] == "plates"
+                    and any(pl["lit"] and (pl["x"], pl["y"]) == (x, y)
+                            for pl in pz["plates"]))
 
     def _monster_sprite_key(self, monster) -> str:
         base_name = monster.name[:-5] if monster.name.endswith(" Boss") else monster.name
@@ -1442,6 +1657,15 @@ class App(tk.Tk):
                     key = sprite_defs.TRAP_KEYS[trap.kind]
                     canvas.create_image(sx, sy, image=sprites[key + suffix], anchor="nw")
 
+                # The push-block puzzle's rune switch is not a tile (the
+                # block must be able to slide onto it) - draw it as an overlay.
+                pz = floor.puzzle
+                if (pz and pz.get("kind") == "push_block" and not pz["solved"]
+                        and pz.get("switch") and (fx, fy) == tuple(pz["switch"])
+                        and tile == C.TILE_FLOOR):
+                    canvas.create_image(sx, sy, image=sprites["rune_switch" + suffix],
+                                         anchor="nw")
+
                 if tile == C.TILE_SHOPKEEPER and visible:
                     canvas.create_image(sx, sy, image=sprites["shopkeeper"], anchor="nw")
 
@@ -1482,7 +1706,7 @@ class App(tk.Tk):
     def _stopwatch_tick(self):
         if self._closing:
             return
-        if (self.mode in ("play", "inventory", "shop") and self.state
+        if (self.mode in ("play", "inventory", "shop", "puzzle") and self.state
                 and self.state.mode == "speedrun" and not self.state.game_over):
             elapsed = time.monotonic() - self._run_started_at
             self.timer_label.configure(
@@ -1522,7 +1746,7 @@ class App(tk.Tk):
         mm = self.minimap
         mm.delete("all")
         floor = self.state.floor
-        scale = 3
+        scale = max(1, min(240 // floor.width, 80 // floor.height))
         ox = (240 - floor.width * scale) // 2
         oy = (80 - floor.height * scale) // 2
         for y in range(floor.height):
@@ -1534,8 +1758,12 @@ class App(tk.Tk):
                     color = "#2a2a33"
                 elif tile == C.TILE_STAIRS:
                     color = "#66d9ef"
-                elif tile == C.TILE_SHOPKEEPER:
+                elif tile in (C.TILE_SHOPKEEPER, C.TILE_CHEST):
                     color = "#f2c94c"
+                elif tile == C.TILE_DOOR:
+                    color = "#e0a83a"
+                elif tile in (C.TILE_LEVER, C.TILE_BLOCK):
+                    color = "#5a5a68"
                 else:
                     color = "#4a4a58"
                 mm.create_rectangle(ox + x * scale, oy + y * scale,

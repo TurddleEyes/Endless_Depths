@@ -19,7 +19,7 @@ from .world import GameState
 # Bump whenever engine generation/logic changes in a way that would make
 # previously recorded replays play back differently - old replays are then
 # cleanly rejected instead of silently desyncing.
-REPLAY_VERSION = 3
+REPLAY_VERSION = 4
 
 
 def build_replay_dict(state: GameState, elapsed_seconds: float) -> dict:
@@ -89,6 +89,10 @@ def _dispatch(state: GameState, action: list) -> None:
             state.sell_item(state.player.inventory[action[1]])
         elif code == "c":
             state.close_shop()
+        elif code == "p":
+            state.puzzle_input(action[1])
+        elif code == "q":
+            state.close_puzzle()
     except (IndexError, ValueError, TypeError):
         # Tolerate corrupt/hand-edited replays without crashing playback;
         # a bad action simply does nothing (which is itself deterministic).

@@ -754,6 +754,196 @@ STAIRS_TILE = [
     "aaaaaaaaaaaaaaaa",
 ]
 
+DOOR_RUNE_TILE = [
+    "ssssssssssssssss",
+    "sdddddddddddddds",
+    "sdkddddddddddkds",
+    "sddddddrrdddddds",
+    "sdddddrddrdddDds",
+    "sdddddrddrdddDds",
+    "sddddddrrdddddds",
+    "sdddddddrddddDds",
+    "sddddddrrrdddDds",
+    "sdddddrdrdrddDds",
+    "sdddddddrddddDds",
+    "sdkddddddddddkds",
+    "sdddddddddddddds",
+    "sdddddddddddddds",
+    "sdddddddddddddds",
+    "ssssssssssssssss",
+]
+
+CHEST_TILE = [
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaooooooooooooaa",
+    "aowwwwwwwwwwwwoa",
+    "aowwwwwwwwwwwwoa",
+    "aoggggggggggggoa",
+    "aowwwwwggwwwwwoa",
+    "aobbbbbggbbbbboa",
+    "aobbbbbggbbbbboa",
+    "aobbbbbbbbbbbboa",
+    "aobbbbbbbbbbbboa",
+    "aaooooooooooooaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+]
+
+LEVER_UP_TILE = [
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaggaaaa",
+    "aaaaaaaaaaggaaaa",
+    "aaaaaaaaawwaaaaa",
+    "aaaaaaaawwaaaaaa",
+    "aaaaaaawwaaaaaaa",
+    "aaaaaawwaaaaaaaa",
+    "aaaaawwaaaaaaaaa",
+    "aaaasskssaaaaaaa",
+    "aaasssksssaaaaaa",
+    "aaasssksssaaaaaa",
+    "aaassssssaaaaaaa",
+    "aaassssssaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+]
+
+LEVER_DOWN_TILE = [
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaawwaaaaaaaaa",
+    "aaaasskwwaaaaaaa",
+    "aaasssksswwaaaaa",
+    "aaasssksssawwaaa",
+    "aaassssssaaaggaa",
+    "aaassssssaaaggaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+]
+
+PLATE_OFF_TILE = [
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaappppppppaaaa",
+    "aaappqqqqqqppaaa",
+    "aappqqqqqqqqppaa",
+    "aapqqqqqqqqqqpaa",
+    "aapqqqqqqqqqqpaa",
+    "aapqqqqqqqqqqpaa",
+    "aapqqqqqqqqqqpaa",
+    "aappqqqqqqqqppaa",
+    "aaappqqqqqqppaaa",
+    "aaaappppppppaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+]
+
+PLATE_ON_TILE = [
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaappppppppaaaa",
+    "aaappllllllppaaa",
+    "aappllllllllppaa",
+    "aapllllllllllpaa",
+    "aapllllwwllllpaa",
+    "aapllllwwllllpaa",
+    "aapllllllllllpaa",
+    "aappllllllllppaa",
+    "aaappllllllppaaa",
+    "aaaappppppppaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+]
+
+BLOCK_TILE = [
+    "oooooooooooooooo",
+    "otttttttttttttto",
+    "otttttttttttttso",
+    "otttttttttttttso",
+    "offfffffffffffso",
+    "offffkffffffffso",
+    "offffkkfffffffso",
+    "offffffffkffffso",
+    "offfffffkkffffso",
+    "offfffffffffffso",
+    "offffffkffffffso",
+    "offfffffffffffso",
+    "osssssssssssssso",
+    "osssssssssssssso",
+    "oooooooooooooooo",
+    "oooooooooooooooo",
+]
+
+RUNE_SWITCH = [
+    "................",
+    "................",
+    "................",
+    "....cccccccc....",
+    "...cc......cc...",
+    "...c..cccc..c...",
+    "...c.cc..cc.c...",
+    "...c.c....c.c...",
+    "...c.c....c.c...",
+    "...c.cc..cc.c...",
+    "...c..cccc..c...",
+    "...cc......cc...",
+    "....cccccccc....",
+    "................",
+    "................",
+    "................",
+]
+
+KEY = [
+    "................",
+    "................",
+    "................",
+    "....ooo.........",
+    "...ogggo........",
+    "...og.go........",
+    "...ogggo........",
+    "....ogo.........",
+    ".....go.........",
+    ".....go.........",
+    ".....gggo.......",
+    ".....go.........",
+    ".....gggo.......",
+    "......oo........",
+    "................",
+    "................",
+]
+
+MIMIC = [
+    "................",
+    "................",
+    "..oooooooooooo..",
+    ".owwwwwwwwwwwwo.",
+    ".owweewwwweewwo.",
+    ".owweewwwweewwo.",
+    ".owwwwwwwwwwwwo.",
+    ".oggggggggggggo.",
+    ".otthhtthhtthho.",
+    ".ohhhhhhhhhhhho.",
+    ".othhtthhtthhto.",
+    ".obbbbbbbbbbbbo.",
+    ".obbbbbbbbbbbbo.",
+    "..oooooooooooo..",
+    "................",
+    "................",
+]
+
 # ----------------------------------------------------------------------
 # Palettes
 # ----------------------------------------------------------------------
@@ -771,6 +961,28 @@ SPRITE_DEFS = {
                                    "k": "#26262e"}),
     "stairs": (STAIRS_TILE, {"a": "#43434f", "1": "#606070", "2": "#4c4c5a",
                               "3": "#3a3a46", "k": "#0a0a0e", "w": "#8fd9ef"}),
+    "door_rune": (DOOR_RUNE_TILE, {"s": "#5a5a68", "d": "#3b3b47",
+                                    "D": "#32323d", "k": "#26262e",
+                                    "r": "#e0a83a"}),
+    "chest": (CHEST_TILE, {"a": "#43434f", "o": _o, "w": "#a06a32",
+                            "b": "#7a4e24", "g": "#f2c94c"}),
+    "lever_up": (LEVER_UP_TILE, {"a": "#43434f", "s": "#5a5a68",
+                                  "k": "#2a2a33", "w": "#c8d0dc",
+                                  "g": "#d04040"}),
+    "lever_down": (LEVER_DOWN_TILE, {"a": "#43434f", "s": "#5a5a68",
+                                      "k": "#2a2a33", "w": "#c8d0dc",
+                                      "g": "#d04040"}),
+    "plate_off": (PLATE_OFF_TILE, {"a": "#43434f", "p": "#5a5a68",
+                                    "q": "#35353f"}),
+    "plate_on": (PLATE_ON_TILE, {"a": "#43434f", "p": "#5a5a68",
+                                  "l": "#e0a83a", "w": "#fff2c8"}),
+    "block": (BLOCK_TILE, {"o": "#1e1e26", "t": "#6a6a7a", "f": "#565664",
+                            "s": "#3e3e4a", "k": "#2e2e38"}),
+    "rune_switch": (RUNE_SWITCH, {"c": "#66d9ef"}),
+    "key": (KEY, {"o": _o, "g": "#e8c34c"}),
+    "mimic": (MIMIC, {"o": _o, "w": "#a06a32", "b": "#7a4e24",
+                       "g": "#f2c94c", "e": "#e04444", "t": "#f0f0e0",
+                       "h": "#3a0f14"}),
     # people
     "player": (PLAYER, PLAYER_PALETTE),
     "shopkeeper": (SHOPKEEPER, {"o": _o, "h": "#8a5a2a", "f": "#e8b888",
@@ -819,6 +1031,7 @@ TRAP_KEYS = {
 DECOR_SPRITES = ("decor_bones", "decor_rubble", "decor_moss")
 
 MONSTER_KEYS = {
+    "Mimic": "mimic",
     "Rat": "rat",
     "Giant Spider": "spider",
     "Goblin": "goblin",
@@ -840,10 +1053,23 @@ ITEM_KEYS = {
     "potion": "potion",
     "scroll": "scroll",
     "gold": "gold",
+    "key": "key",
+}
+
+# Tile-char -> sprite key for the new interactable tiles, shared by both
+# renderers (lever/plate pick their lit/pulled variant from puzzle state).
+PUZZLE_TILE_KEYS = {
+    "+": "door_rune",
+    "&": "chest",
+    "L": "lever_up",
+    "_": "plate_off",
+    "B": "block",
 }
 
 # Sprites that get a darkened "explored but not visible" variant.
 DIM_TILES = ("floor", "floor2", "floor3", "wall", "wall2", "stairs",
+             "door_rune", "chest", "lever_up", "lever_down",
+             "plate_off", "plate_on", "block", "rune_switch",
              "trap_spike", "trap_poison", "trap_teleport",
              "decor_bones", "decor_rubble", "decor_moss")
 DIM_FACTOR = 0.45

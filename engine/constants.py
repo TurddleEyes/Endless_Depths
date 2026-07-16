@@ -4,13 +4,13 @@
 # Fixed physical map size for every floor. Infinite depth is expressed
 # through scaling stats/loot/monster-count rather than an ever-growing
 # grid, which keeps rendering and generation simple at any depth.
-MAP_WIDTH = 48
-MAP_HEIGHT = 26
+MAP_WIDTH = 60
+MAP_HEIGHT = 32
 
-MIN_ROOMS = 6
-MAX_ROOMS = 10
+MIN_ROOMS = 8
+MAX_ROOMS = 14
 MIN_ROOM_SIZE = 4
-MAX_ROOM_SIZE = 9
+MAX_ROOM_SIZE = 10
 
 FOV_RADIUS = 7
 
@@ -26,6 +26,30 @@ TILE_WALL = "#"
 TILE_FLOOR = "."
 TILE_STAIRS = ">"
 TILE_SHOPKEEPER = "$"
+TILE_DOOR = "+"    # sealed rune door; sits on the stairs tile of puzzle floors
+TILE_CHEST = "&"   # closed chest (every kind looks identical - mimics included)
+TILE_LEVER = "L"   # bump-interactable puzzle lever
+TILE_PLATE = "_"   # walkable pressure plate (lit state lives in the puzzle)
+TILE_BLOCK = "B"   # pushable block
+
+# Tiles that block movement and pathing. Interactables (door, chest, lever,
+# block) are solid so the player triggers them by bumping, exactly like the
+# shopkeeper - and monsters route around them.
+SOLID_TILES = (TILE_WALL, TILE_SHOPKEEPER, TILE_DOOR, TILE_CHEST,
+               TILE_LEVER, TILE_BLOCK)
+
+# --- Puzzles ---------------------------------------------------------------
+# A puzzle seals the stairs behind a rune door on ~PUZZLE_CHANCE of floors.
+# Never on floor 1 (let people learn to walk first) or boss floors (the boss
+# IS that floor's gate). Difficulty pools unlock as the depths grow.
+PUZZLE_CHANCE = 0.40
+PUZZLE_MIN_DEPTH = 2
+PUZZLE_MEDIUM_DEPTH = 8
+PUZZLE_HARD_DEPTH = 16
+
+# --- Chests ----------------------------------------------------------------
+CHEST_CHANCE = 0.40         # chance a floor spawns a chest at all
+CHEST_SECOND_CHANCE = 0.20  # chance of a second chest, depth >= 10
 
 # --- Rarity tiers ---------------------------------------------------------
 RARITIES = [

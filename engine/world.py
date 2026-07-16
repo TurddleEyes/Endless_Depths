@@ -14,10 +14,11 @@ from collections import deque
 
 from . import constants as C
 from .combat import resolve_attack
-from .dungeon import generate_floor, start_position
-from .entities import Player
+from .dungeon import generate_floor, start_position, Chest, GroundItem
+from .entities import Player, generate_monster, make_mimic
 from .fov import compute_fov
-from .items import use_item as apply_item_effect
+from .items import generate_item, use_item as apply_item_effect
+from . import puzzles as puzzle_module
 from . import shop as shop_module
 
 MAX_EVENTS = 200
@@ -76,6 +77,7 @@ class GameState:
         self.events: list = []
         self.game_over = False
         self.pending_shop = False
+        self.pending_puzzle = False
 
     def _record(self, code: str, *params):
         self.action_log.append([code, *params] if params else [code])
@@ -115,7 +117,7 @@ class GameState:
     # ------------------------------------------------------------------
     def try_move_player(self, dx: int, dy: int):
         self._record("m", dx, dy)
-        if self.game_over or self.pending_shop:
+        if self.game_over or self.pending_shop or self.pending_puzzle:
             return
         floor = self.floor
         nx, ny = self.player.x + dx, self.player.y + dy
@@ -130,6 +132,20 @@ class GameState:
         if monster:
             self._player_attack(monster)
             self._end_turn()
+            return
+
+        tile = floor.tiles[ny][nx]
+        if tile == C.TILE_CHEST:
+            self._open_chest(nx, ny)
+            return
+        if tile == C.TILE_DOOR:
+            self._bump_door()
+            return
+        if tile == C.TILE_LEVER:
+            self._pull_lever(nx, ny)
+            return
+        if tile == C.TILE_BLOCK:
+            self._push_block(nx, ny, dx, dy)
             return
 
         if not floor.is_walkable(nx, ny):
@@ -150,6 +166,7 @@ class GameState:
                 return
 
         self._pickup_at(self.player.x, self.player.y)
+        self._check_plate(self.player.x, self.player.y)
 
         if floor.stairs_pos == (self.player.x, self.player.y):
             self._descend()
@@ -160,7 +177,7 @@ class GameState:
     def wait(self):
         """Pass a turn without moving."""
         self._record("w")
-        if self.game_over or self.pending_shop:
+        if self.game_over or self.pending_shop or self.pending_puzzle:
             return
         self._end_turn()
 
@@ -191,6 +208,70 @@ class GameState:
                 return
         self.player.status_effects.append({"type": "poison", "dmg": dmg})
         self._emit("poisoned")
+
+    def _set_tile(self, x: int, y: int, tile: str):
+        """All mid-floor map mutations go through here so the web renderer
+        can detect them (it caches the tile grid per floor)."""
+        self.floor.tiles[y][x] = tile
+        self.floor.tiles_version += 1
+
+    def _open_chest(self, x: int, y: int):
+        floor = self.floor
+        chest = floor.chest_at(x, y)
+        if chest is None:  # stray tile with no chest data - clear it
+            self._set_tile(x, y, C.TILE_FLOOR)
+            return
+
+        if chest.kind == "locked":
+            key = next((i for i in self.player.inventory
+                        if i.category == "key" and i.name == "Iron Key"), None)
+            if key is None:
+                self._log("The chest is locked tight. Its key must be somewhere on this floor...")
+                self._emit("chest_locked", x=x, y=y)
+                return  # a free bump, like the shopkeeper
+            self.player.inventory.remove(key)
+            self._log("The Iron Key turns with a heavy clunk.")
+            self._emit("unlock")
+
+        floor.chests.remove(chest)
+        self._set_tile(x, y, C.TILE_FLOOR)
+
+        if chest.kind == "mimic":
+            floor.monsters.append(make_mimic(self.depth, x, y))
+            self._log("The chest sprouts teeth - it's a MIMIC!")
+            self._emit("mimic", x=x, y=y)
+            self._end_turn()
+            return
+
+        if chest.kind == "trapped":
+            if chest.trap_kind == "dart":
+                damage = max(1, round(2 + self.depth * 0.9) - self.player.defense_power // 2)
+                self.player.hp -= damage
+                self._log(f"A dart shoots from the lid! You take {damage} damage.")
+                self._emit("trap", kind="spike", x=x, y=y, dmg=damage)
+            else:
+                self._apply_poison(dmg=max(1, 1 + self.depth // 6))
+                self._log("Noxious gas hisses from the chest!")
+                self._emit("trap", kind="poison", x=x, y=y)
+            if self.player.hp <= 0:
+                self._die()
+                return
+
+        total_gold = chest.gold
+        loot = []
+        for item in chest.items:
+            if item.category == "gold":
+                total_gold += item.quantity
+            else:
+                self.player.inventory.append(item)
+                loot.append(item.display_name())
+        self.player.gold += total_gold
+        if total_gold:
+            loot.append(f"{total_gold} gold")
+        found = ", ".join(loot) if loot else "nothing but dust"
+        self._log(f"You open the chest and find {found}.")
+        self._emit("chest_open", x=x, y=y)
+        self._end_turn()
 
     def _pickup_at(self, x: int, y: int):
         gi = self.floor.ground_item_at(x, y)
@@ -346,6 +427,167 @@ class GameState:
     def close_shop(self):
         self._record("c")
         self.pending_shop = False
+
+    # ------------------------------------------------------------------
+    # Puzzles (see engine/puzzles.py for the puzzle logic itself)
+    # ------------------------------------------------------------------
+    def puzzle_input(self, index: int):
+        """A button press on the open puzzle popup. Recorded even when it
+        does nothing - the no-op is deterministic, so replay matches."""
+        self._record("p", int(index))
+        if self.game_over or not self.pending_puzzle or self.floor.puzzle is None:
+            return
+        result = puzzle_module.apply_input(self.floor.puzzle, int(index), self.rng)
+        if result == "solved":
+            self._solve_puzzle()
+        elif result == "failed":
+            self._puzzle_fail()
+        elif result == "reset_block":
+            self._reset_block()
+
+    def close_puzzle(self):
+        """Walk away from the door; the puzzle keeps its state."""
+        self._record("q")
+        self.pending_puzzle = False
+
+    def _bump_door(self):
+        puzzle = self.floor.puzzle
+        if puzzle is None:  # a door with no puzzle data just gives way
+            sx, sy = self.floor.stairs_pos
+            self._set_tile(sx, sy, C.TILE_STAIRS)
+            return
+        if puzzle["kind"] == "hidden_key":
+            key = next((i for i in self.player.inventory
+                        if i.category == "key" and i.name == "Rune Key"), None)
+            if key is not None:
+                self.player.inventory.remove(key)
+                self._log("The Rune Key sinks into the door, and both dissolve.")
+                self._emit("unlock")
+                self._solve_puzzle()
+                return
+        self.pending_puzzle = True
+        self._emit("puzzle_open")
+
+    def _solve_puzzle(self):
+        puzzle = self.floor.puzzle
+        puzzle["solved"] = True
+        self.pending_puzzle = False
+        sx, sy = self.floor.stairs_pos
+        self._set_tile(sx, sy, C.TILE_STAIRS)
+        self._log("The rune door dissolves into pale light - the way down stands open!")
+        self._emit("puzzle_solved", x=sx, y=sy)
+        if puzzle.get("reward"):
+            self._spawn_reward_chest()
+
+    def _spawn_reward_chest(self):
+        floor = self.floor
+        sx, sy = floor.stairs_pos
+        loot = [generate_item(self.depth, self.rng, quality_bonus=1.6)
+                for _ in range(2)]
+        gold = round(self.rng.randint(15, 30) * C.gold_scale(self.depth))
+
+        def room_interior(x, y):
+            return any(r.x + 1 <= x <= r.x + r.w - 2
+                       and r.y + 1 <= y <= r.y + r.h - 2 for r in floor.rooms)
+
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            x, y = sx + dx, sy + dy
+            if (floor.tiles[y][x] == C.TILE_FLOOR and room_interior(x, y)
+                    and floor.monster_at(x, y) is None
+                    and floor.ground_item_at(x, y) is None
+                    and (x, y) != (self.player.x, self.player.y)):
+                floor.chests.append(Chest(x, y, "plain", items=loot, gold=gold))
+                self._set_tile(x, y, C.TILE_CHEST)
+                self._log("Stone grinds aside - the door leaves a reward chest behind!")
+                return
+        # No safe tile beside the door: tribute goes straight to your hands.
+        self.player.inventory.extend(loot)
+        self.player.gold += gold
+        names = ", ".join(i.display_name() for i in loot)
+        self._log(f"Tribute spills from the dissolving door: {names} and {gold} gold!")
+
+    def _puzzle_fail(self):
+        """Every wrong attempt wakes something hungry nearby."""
+        floor = self.floor
+        px, py = self.player.x, self.player.y
+        candidates = [
+            (x, y)
+            for y in range(max(0, py - 3), min(floor.height, py + 4))
+            for x in range(max(0, px - 3), min(floor.width, px + 4))
+            if floor.is_walkable(x, y) and floor.monster_at(x, y) is None
+            and (x, y) != (px, py)
+        ]
+        self._emit("puzzle_fail")
+        if not candidates:
+            return
+        x, y = self.rng.choice(candidates)
+        monster = generate_monster(self.depth, self.rng, x, y)
+        monster.state = "chasing"
+        floor.monsters.append(monster)
+        self._log(f"Your failure echoes through the dark... a {monster.name} wakes!")
+        self._emit("summon", x=x, y=y)
+
+    def _pull_lever(self, x: int, y: int):
+        puzzle = self.floor.puzzle
+        if puzzle is None:
+            return
+        result = puzzle_module.on_lever(puzzle, x, y)
+        self._emit("lever", x=x, y=y)
+        if puzzle.get("feedback"):
+            self._log(puzzle["feedback"])
+        if result == "solved":
+            self._solve_puzzle()
+        elif result == "failed":
+            self._puzzle_fail()
+        self._end_turn()
+
+    def _check_plate(self, x: int, y: int):
+        floor = self.floor
+        if floor.puzzle is None or floor.tiles[y][x] != C.TILE_PLATE:
+            return
+        result = puzzle_module.on_plate(floor.puzzle, x, y)
+        self._emit("plate", x=x, y=y)
+        if result == "solved":
+            self._solve_puzzle()
+        elif result == "failed":
+            self._log(floor.puzzle["feedback"])
+            self._puzzle_fail()
+        else:
+            lit = sum(1 for pl in floor.puzzle["plates"] if pl["lit"])
+            self._log(f"The plate glows beneath your step ({lit}/{len(floor.puzzle['plates'])}).")
+
+    def _push_block(self, x: int, y: int, dx: int, dy: int):
+        floor = self.floor
+        tx, ty = x + dx, y + dy
+        if (floor.in_bounds(tx, ty) and floor.tiles[ty][tx] == C.TILE_FLOOR
+                and floor.monster_at(tx, ty) is None):
+            self._set_tile(x, y, C.TILE_FLOOR)
+            self._set_tile(tx, ty, C.TILE_BLOCK)
+            self._log("You heave the block forward with a grinding roar.")
+            self._emit("push", x=tx, y=ty)
+            if floor.puzzle is not None:
+                if puzzle_module.on_block_moved(floor.puzzle, tx, ty) == "solved":
+                    self._solve_puzzle()
+        else:
+            self._log("The block will not budge that way.")
+        self._end_turn()
+
+    def _reset_block(self):
+        puzzle = self.floor.puzzle
+        bx, by = puzzle["block"]
+        hx, hy = puzzle["block_start"]
+        if (bx, by) == (hx, hy):
+            self._log("The block already rests in its cradle.")
+            return
+        if (self.player.x, self.player.y) == (hx, hy) \
+                or self.floor.monster_at(hx, hy) is not None:
+            self._log("The winch strains - something stands where the block would return.")
+            return
+        self._set_tile(bx, by, C.TILE_FLOOR)
+        self._set_tile(hx, hy, C.TILE_BLOCK)
+        puzzle["block"] = [hx, hy]
+        self._log("Chains rattle in the walls; the block grinds back to its cradle.")
+        self._emit("push", x=hx, y=hy)
 
     # ------------------------------------------------------------------
     # Turn resolution

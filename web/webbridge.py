@@ -11,6 +11,7 @@ import json
 
 from engine import constants as C
 from engine.world import GameState
+from engine import puzzles as puzzle_module
 from engine import replay as replay_module
 from ui import spritedata as S
 from ui.iteminfo import RARITY_COLORS, describe_item, sell_price
@@ -194,6 +195,16 @@ def close_shop() -> str:
     return snapshot_json()
 
 
+def puzzle_input(index: int) -> str:
+    STATE.puzzle_input(int(index))
+    return snapshot_json()
+
+
+def close_puzzle() -> str:
+    STATE.close_puzzle()
+    return snapshot_json()
+
+
 # ----------------------------------------------------------------------
 # Snapshot
 # ----------------------------------------------------------------------
@@ -227,6 +238,28 @@ def _hero_variant(p) -> dict:
         "poisoned": any(e.get("type") == "poison" for e in p.status_effects),
         "rarity": rarity,
     }
+
+
+def _puzzle_props(floor) -> list:
+    """Mutable render state for in-dungeon puzzle props. Lever/plate states
+    persist after the solve (the props stay on the map); the push-block
+    switch disappears once the seal breaks."""
+    pz = floor.puzzle
+    if pz is None:
+        return []
+    props = []
+    if pz["kind"] == "lever_order":
+        for lv in pz["levers"]:
+            props.append({"x": lv["x"], "y": lv["y"], "kind": "lever",
+                          "on": lv["pulled"]})
+    elif pz["kind"] == "plates":
+        for pl in pz["plates"]:
+            props.append({"x": pl["x"], "y": pl["y"], "kind": "plate",
+                          "on": pl["lit"]})
+    elif pz["kind"] == "push_block" and pz.get("switch") and not pz["solved"]:
+        props.append({"x": pz["switch"][0], "y": pz["switch"][1],
+                      "kind": "switch", "on": False})
+    return props
 
 
 def _decor_key(depth: int, x: int, y: int):
@@ -285,6 +318,7 @@ def floor_data_json() -> str:
         "height": floor.height,
         "tiles": ["".join(row) for row in floor.tiles],
         "variants": variants,
+        "tiles_version": floor.tiles_version,
         "stairs": list(floor.stairs_pos),
         "shop": list(floor.shop_pos) if floor.shop_pos else None,
         "decor": decor,
@@ -304,6 +338,7 @@ def snapshot_json() -> str:
     snap = {
         "depth": STATE.depth,
         "floor_changed": floor_changed,
+        "tiles_version": floor.tiles_version,
         "game_over": STATE.game_over,
         "game_won": STATE.game_won,
         "seed": STATE.seed,
@@ -312,6 +347,10 @@ def snapshot_json() -> str:
         "replayable": STATE.replayable,
         "cause_of_death": cause,
         "shop_open": STATE.pending_shop,
+        "puzzle_open": STATE.pending_puzzle,
+        "puzzle": (puzzle_module.view(floor.puzzle)
+                   if STATE.pending_puzzle and floor.puzzle else None),
+        "puzzle_props": _puzzle_props(floor),
         "boss_alive": any(m.is_boss and m.is_alive() for m in floor.monsters),
         "music_track": audio_synth.track_for_depth(
             STATE.depth, any(m.is_boss and m.is_alive() for m in floor.monsters)),

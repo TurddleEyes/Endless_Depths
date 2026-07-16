@@ -18,8 +18,8 @@ let VIEW_ROWS = IS_SMALL ? 13 : 16;
 const PY_FILES = [
   "engine/__init__.py", "engine/constants.py", "engine/combat.py",
   "engine/dungeon.py", "engine/entities.py", "engine/fov.py",
-  "engine/items.py", "engine/replay.py", "engine/save.py", "engine/shop.py",
-  "engine/world.py",
+  "engine/items.py", "engine/puzzles.py", "engine/replay.py", "engine/save.py",
+  "engine/shop.py", "engine/world.py",
   "ui/__init__.py", "ui/spritedata.py", "ui/iteminfo.py", "ui/audio.py", "ui/lore.py",
 ];
 
@@ -274,6 +274,7 @@ function showScreen(name) {
   $("inventory-overlay").classList.add("hidden");
   $("shop-overlay").classList.add("hidden");
   $("settings-overlay").classList.add("hidden");
+  $("puzzle-overlay").classList.add("hidden");
   $("replay-controls").classList.toggle("hidden", mode !== "replay");
 }
 
@@ -528,7 +529,9 @@ window.addEventListener("resize", fitScale);
 
 function applySnapshot(s) {
   snap = s;
-  if (s.floor_changed || !floorData) {
+  // Re-fetch the cached floor data on a new floor OR when the map mutated
+  // mid-floor (chest opened, rune door dissolved, block pushed).
+  if (s.floor_changed || !floorData || s.tiles_version !== floorData.tiles_version) {
     floorData = JSON.parse(bridge.floor_data_json());
   }
   handleEvents(s.events || []);
@@ -545,6 +548,7 @@ function afterAction(snapJson) {
     return;
   }
   if (snap.shop_open && mode === "play") openShop();
+  else if (snap.puzzle_open && mode === "play") openPuzzle();
   else if (mode === "play") {
     if (snap.player.hp <= snap.player.max_hp * 0.25) audio.play("heartbeat");
     updateMusic();
@@ -646,12 +650,104 @@ function stopReplay() {
   toTitle();
 }
 
+/* ------------------------------------------------------ puzzle overlay */
+let puzzleLocked = false;   // true while a reveal animation plays
+let puzzleRevealShown = -1;
+
+function openPuzzle() {
+  mode = "puzzle";
+  puzzleRevealShown = -1;  // replay the intro reveal on reopen
+  $("puzzle-overlay").classList.remove("hidden");
+  renderPuzzle();
+}
+
+function closePuzzle() {
+  if (snap && snap.puzzle_open) afterAction(bridge.close_puzzle());
+  $("puzzle-overlay").classList.add("hidden");
+  puzzleLocked = false;
+  mode = "play";
+}
+
+function puzzlePress(i) {
+  if (mode !== "puzzle" || puzzleLocked) return;
+  afterAction(bridge.puzzle_input(i));
+  if (!snap.puzzle_open) {  // solved - the door is gone
+    $("puzzle-overlay").classList.add("hidden");
+    mode = "play";
+    return;
+  }
+  renderPuzzle();
+}
+
+function renderPuzzle() {
+  const v = snap.puzzle;
+  if (!v) return;
+  $("puzzle-title").textContent = v.title;
+  $("puzzle-prompt").textContent = v.prompt;
+  $("puzzle-feedback").textContent = v.feedback || "";
+  const hist = $("puzzle-history");
+  hist.textContent = (v.history || []).join("\n");
+  hist.classList.toggle("hidden", !(v.history && v.history.length));
+  const grid = $("puzzle-buttons");
+  grid.innerHTML = "";
+  grid.style.gridTemplateColumns = `repeat(${v.grid_cols}, minmax(48px, 1fr))`;
+  v.buttons.forEach((b, i) => {
+    const btn = document.createElement("button");
+    btn.className = "puzzle-btn" + (b.state === "lit" ? " lit" : "");
+    btn.textContent = b.label;
+    btn.disabled = b.state === "disabled";
+    btn.addEventListener("click", () => puzzlePress(i));
+    grid.appendChild(btn);
+  });
+  maybePlayReveal(v);
+}
+
+function maybePlayReveal(v) {
+  // Client-side flash animations (Simon melody, Counting Eyes grid, Rune
+  // Pairs flip-back). The engine bumps reveal_id when a new one should play.
+  if (v.reveal_id === puzzleRevealShown) return;
+  puzzleRevealShown = v.reveal_id;
+  const flash = $("puzzle-flash");
+  const btnAt = (i) => $("puzzle-buttons").children[i];
+  if (v.kind === "counting_eyes" && v.flash_grid) {
+    puzzleLocked = true;
+    flash.textContent = v.flash_grid.join("\n");
+    flash.classList.remove("hidden");
+    setTimeout(() => { flash.classList.add("hidden"); puzzleLocked = false; }, 2000);
+  } else if (v.kind === "echo" && v.reveal) {
+    puzzleLocked = true;
+    v.reveal.forEach((idx, k) => {
+      setTimeout(() => { const b = btnAt(idx); if (b) b.classList.add("lit"); audio.play("menu"); },
+                 350 + k * 450);
+      setTimeout(() => { const b = btnAt(idx); if (b) b.classList.remove("lit"); },
+                 350 + k * 450 + 330);
+    });
+    setTimeout(() => { puzzleLocked = false; }, 400 + v.reveal.length * 450);
+  } else if (v.kind === "rune_pairs" && v.reveal && v.reveal_cards) {
+    puzzleLocked = true;
+    v.reveal.forEach((idx, k) => {
+      const b = btnAt(idx);
+      if (b) { b.textContent = v.reveal_cards[k]; b.classList.add("lit"); }
+    });
+    setTimeout(() => {
+      v.reveal.forEach((idx) => {
+        const b = btnAt(idx);
+        if (b) { b.textContent = "?"; b.classList.remove("lit"); }
+      });
+      puzzleLocked = false;
+    }, 900);
+  }
+}
+
 /* -------------------------------------------------------------- events */
 const EVENT_SFX = {
   gold: "gold", pickup: "pickup", step: "step", drop: "drop", potion: "potion",
   strength: "strength", cure: "cure", enchant: "enchant", scroll: "scroll",
   equip: "equip", teleport: "teleport", buy: "buy", sell: "sell",
   poisoned: "splat", poison_tick: "poison_tick",
+  puzzle_open: "puzzle_open", puzzle_solved: "unlock", unlock: "unlock",
+  chest_open: "chest_open", chest_locked: "locked",
+  lever: "lever", plate: "plate", push: "push",
 };
 
 function handleEvents(events) {
@@ -689,6 +785,18 @@ function handleEvents(events) {
         break;
       case "player_death":
         audio.play("death");
+        shake();
+        break;
+      case "puzzle_fail":
+        audio.play("puzzle_fail");
+        shake();
+        break;
+      case "summon":
+        audio.play("summon");
+        floatNum(ev.x, ev.y, "!", "#b060e0");
+        break;
+      case "mimic":
+        audio.play("mimic");
         shake();
         break;
       default:
@@ -777,6 +885,12 @@ function render() {
   for (const [dx, dy, key] of floorData.decor) decorAt[dx + "," + dy] = key;
   const trapAt = {};
   for (const t of snap.traps) trapAt[t.x + "," + t.y] = t.sprite;
+  const propOn = {};   // lever/plate on-state by position
+  const switchAt = {}; // the push-block rune switch (an overlay, not a tile)
+  for (const pr of snap.puzzle_props || []) {
+    if (pr.kind === "switch") switchAt[pr.x + "," + pr.y] = true;
+    else propOn[pr.x + "," + pr.y] = pr.on;
+  }
 
   for (let row = 0; row < VIEW_ROWS; row++) {
     const fy = cam.y + row;
@@ -790,17 +904,23 @@ function render() {
       const dim = visible ? "" : "_dim";
 
       const variant = floorData.variants ? floorData.variants[fy][fx] : "0";
+      const key = fx + "," + fy;
       let base = "floor";
       if (tile === "#") base = variant === "1" ? "wall2" : "wall";
       else if (tile === ">") base = "stairs";
+      else if (tile === "+") base = "door_rune";
+      else if (tile === "&") base = "chest";
+      else if (tile === "B") base = "block";
+      else if (tile === "L") base = propOn[key] ? "lever_down" : "lever_up";
+      else if (tile === "_") base = propOn[key] ? "plate_on" : "plate_off";
       else if (variant === "1") base = "floor2";
       else if (variant === "2") base = "floor3";
       blit(base + dim, col, row);
 
-      const key = fx + "," + fy;
       if (trapAt[key]) blit(trapAt[key] + dim, col, row);
       else if (tile === "." && decorAt[key]) blit(decorAt[key] + dim, col, row);
 
+      if (tile === "." && switchAt[key]) blit("rune_switch" + dim, col, row);
       if (tile === "$" && visible) blit("shopkeeper", col, row);
     }
   }
@@ -867,7 +987,8 @@ function renderLog() {
 }
 
 function renderMinimap() {
-  const scale = 3;
+  const scale = Math.max(1, Math.min(Math.floor(minimap.width / floorData.width),
+                                     Math.floor(minimap.height / floorData.height)));
   const ox = Math.floor((minimap.width - floorData.width * scale) / 2);
   const oy = Math.floor((minimap.height - floorData.height * scale) / 2);
   mmCtx.fillStyle = "#111114";
@@ -877,7 +998,8 @@ function renderMinimap() {
       if (snap.explored[y][x] !== "1") continue;
       const tile = floorData.tiles[y][x];
       mmCtx.fillStyle = tile === "#" ? "#2a2a33" : tile === ">" ? "#66d9ef"
-        : tile === "$" ? "#f2c94c" : "#4a4a58";
+        : tile === "$" || tile === "&" ? "#f2c94c" : tile === "+" ? "#e0a83a"
+        : tile === "L" || tile === "B" ? "#5a5a68" : "#4a4a58";
       mmCtx.fillRect(ox + x * scale, oy + y * scale, scale, scale);
     }
   }
@@ -1121,6 +1243,13 @@ document.addEventListener("keydown", (e) => {
       else if (e.key === "ArrowDown" || e.key === "j") { shopSel++; renderShop(); }
       else if (e.key === "Enter") shopActivate();
       break;
+    case "puzzle":
+      if (e.key === "Escape") closePuzzle();
+      else if (e.key >= "1" && e.key <= "9") {
+        const index = +e.key - 1;
+        if (index < $("puzzle-buttons").children.length) puzzlePress(index);
+      }
+      break;
     case "gameover":
       // Deliberate keys only, so a stray keypress can't skip the
       // Save Replay buttons.
@@ -1207,6 +1336,7 @@ $("stat-seed").addEventListener("click", () => {
 
 $("btn-settings").addEventListener("click", openSettings);
 $("settings-close").addEventListener("click", closeSettings);
+$("puzzle-close").addEventListener("click", closePuzzle);
 $("setting-music").addEventListener("click", () => toggleSetting("music_on"));
 $("setting-sfx").addEventListener("click", () => toggleSetting("sfx_on"));
 $("setting-shake").addEventListener("click", () => toggleSetting("shake_on"));

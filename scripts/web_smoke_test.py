@@ -21,7 +21,10 @@ def test_no_tkinter():
 def test_atlas():
     atlas = json.loads(webbridge.sprite_atlas_json())
     for key in ("floor", "floor_dim", "wall", "stairs", "goblin", "lich",
-                 "sword", "potion", "crown", "trap_spike", "decor_bones", "shopkeeper"):
+                 "sword", "potion", "crown", "trap_spike", "decor_bones", "shopkeeper",
+                 "door_rune", "door_rune_dim", "chest", "chest_dim", "mimic", "key",
+                 "lever_up", "lever_down", "plate_off", "plate_on", "block",
+                 "rune_switch"):
         assert key in atlas, f"atlas missing {key}"
         assert len(atlas[key]["grid"]) == 16
     hero = json.loads(webbridge.hero_sprite_json("axe", "plate", True, False, "legendary"))
@@ -166,6 +169,62 @@ def test_replay_round_trip_through_bridge():
     print(f"OK: bridge replay round-trip reproduces the victory in {steps} steps")
 
 
+def test_puzzle_via_bridge():
+    from engine import puzzles as puzzle_module
+
+    json.loads(webbridge.new_game(seed=11))
+    state = webbridge.STATE
+    # Skim down floors until a pop-up puzzle gates the stairs.
+    for _ in range(200):
+        pz = state.floor.puzzle
+        if pz is not None and pz["kind"] not in puzzle_module.IN_DUNGEON:
+            break
+        state.depth += 1
+        state._enter_floor(regenerate=True)
+    else:
+        raise AssertionError("no pop-up puzzle floor found")
+    state.floor.monsters.clear()
+    state.floor.traps.clear()
+    state.player.hp = state.player.max_hp = 10 ** 6
+
+    floor_data = json.loads(webbridge.floor_data_json())
+    sx, sy = state.floor.stairs_pos
+    assert floor_data["tiles"][sy][sx] == "+", "the sealed door must ship in floor data"
+    tiles_v0 = floor_data["tiles_version"]
+
+    # Stand beside the door and bump it through the JSON API.
+    spot = next((sx + dx, sy + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                if state.floor.is_walkable(sx + dx, sy + dy))
+    state.player.x, state.player.y = spot
+    snap = json.loads(webbridge.move(sx - spot[0], sy - spot[1]))
+    assert snap["puzzle_open"] is True
+    assert snap["puzzle"]["title"] and isinstance(snap["puzzle"]["buttons"], list)
+
+    # Movement is refused while the popup is open.
+    turns = snap["player"]["turns"]
+    snap = json.loads(webbridge.move(1, 0))
+    assert snap["player"]["turns"] == turns, "popup must freeze the world"
+
+    # Walking away and bumping again works over the bridge too.
+    snap = json.loads(webbridge.close_puzzle())
+    assert snap["puzzle_open"] is False and snap["puzzle"] is None
+    snap = json.loads(webbridge.move(sx - spot[0], sy - spot[1]))
+    assert snap["puzzle_open"] is True
+
+    # Solve via recorded inputs; the tile mutation must bump tiles_version
+    # so the JS renderer knows to re-fetch its cached floor data.
+    pz = state.floor.puzzle
+    for _ in range(200):
+        if pz["solved"]:
+            break
+        snap = json.loads(webbridge.puzzle_input(puzzle_module.solve_sequence(pz)[0]))
+    assert pz["solved"] and snap["puzzle_open"] is False
+    assert snap["tiles_version"] > tiles_v0, "solving must invalidate cached tiles"
+    floor_data = json.loads(webbridge.floor_data_json())
+    assert floor_data["tiles"][sy][sx] == ">", "the door must dissolve into stairs"
+    print("OK: sealed-door puzzle drives end-to-end through the JSON bridge")
+
+
 def test_all_engine_modules_shipped_to_browser():
     """Every engine/*.py on disk must appear in main.js's PY_FILES fetch
     list, or the Pyodide build breaks with an ImportError while the
@@ -215,6 +274,7 @@ if __name__ == "__main__":
     test_save_load_roundtrip()
     test_seed_and_mode_in_snapshot()
     test_replay_round_trip_through_bridge()
+    test_puzzle_via_bridge()
     test_all_engine_modules_shipped_to_browser()
     test_lore()
     test_audio_synth()

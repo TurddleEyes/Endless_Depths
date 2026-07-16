@@ -157,3 +157,17 @@ def generate_monster(depth: int, rng, x: int, y: int, force_boss: bool = False) 
         glyph = glyph.upper()
 
     return Monster(x, y, name, glyph, hp, hp, attack, defense, xp, gold, is_boss=force_boss)
+
+
+def make_mimic(depth: int, x: int, y: int) -> Monster:
+    """A chest that was never a chest. Not in MONSTER_TEMPLATES - mimics
+    only ever hatch from opened chests, already awake and angry. They are
+    treasure made flesh, so the gold reward runs rich."""
+    scale = 1 + (depth - 1) * 0.22
+    hp = round(14 * scale)
+    attack = round(5 * scale)
+    defense = round(2 * (1 + (depth - 1) * 0.12))
+    xp = round(18 * scale)
+    gold = round(22 * C.gold_scale(depth))
+    return Monster(x, y, "Mimic", "m", hp, hp, attack, defense, xp, gold,
+                   state="chasing")

@@ -303,6 +303,82 @@ def _sfx_poison_tick():
     return b
 
 
+def _sfx_puzzle_open():
+    b = Buffer(0.5)
+    b.tone(0, 0.16, 520, 0.14, "sine")
+    b.tone(0.14, 0.16, 660, 0.14, "sine")
+    b.tone(0.28, 0.2, 880, 0.12, "sine")
+    return b
+
+
+def _sfx_puzzle_fail():
+    b = Buffer(0.45)
+    b.tone(0, 0.3, 160, 0.24, "square", sweep=-1.8, duty=0.3)
+    b.tone(0.05, 0.2, 0, 0.14, "noise", seed=61)
+    return b
+
+
+def _sfx_unlock():
+    b = Buffer(0.6)
+    for i, note in enumerate((67, 71, 74, 79)):
+        b.tone(i * 0.08, 0.2, _midi(note), 0.16, "triangle")
+    b.tone(0.35, 0.2, 1760, 0.08, "sine")
+    return b
+
+
+def _sfx_summon():
+    b = Buffer(0.7)
+    b.tone(0, 0.45, 80, 0.2, "saw", sweep=2.4)
+    b.tone(0.1, 0.5, 0, 0.16, "noise", seed=67)
+    b.tone(0.4, 0.25, 220, 0.14, "square", sweep=-1.2)
+    return b
+
+
+def _sfx_chest_open():
+    b = Buffer(0.55)
+    b.tone(0, 0.18, 120, 0.18, "square", sweep=1.4, duty=0.3)
+    b.tone(0.2, 0.08, 1250, 0.16, "sine")
+    b.tone(0.3, 0.08, 1650, 0.16, "sine")
+    b.tone(0.4, 0.1, 2093, 0.12, "sine")
+    return b
+
+
+def _sfx_locked():
+    b = Buffer(0.3)
+    b.tone(0, 0.08, 130, 0.22, "square", duty=0.3)
+    b.tone(0.14, 0.08, 110, 0.22, "square", duty=0.3)
+    return b
+
+
+def _sfx_mimic():
+    b = Buffer(0.6)
+    b.tone(0, 0.35, 340, 0.24, "saw", sweep=-2.2)
+    b.tone(0.05, 0.4, 0, 0.2, "noise", seed=71)
+    b.tone(0.3, 0.2, 90, 0.2, "square", sweep=-0.8)
+    return b
+
+
+def _sfx_lever():
+    b = Buffer(0.25)
+    b.tone(0, 0.04, 0, 0.18, "noise", seed=73)
+    b.tone(0.05, 0.12, 170, 0.22, "square", sweep=-0.9, duty=0.3)
+    return b
+
+
+def _sfx_plate():
+    b = Buffer(0.16)
+    b.tone(0, 0.03, 0, 0.12, "noise", seed=79)
+    b.tone(0.02, 0.1, 240, 0.18, "sine", sweep=-0.6)
+    return b
+
+
+def _sfx_push():
+    b = Buffer(0.45)
+    b.tone(0, 0.4, 0, 0.2, "noise", seed=83)
+    b.tone(0, 0.35, 70, 0.18, "saw", sweep=-0.4)
+    return b
+
+
 SFX_BUILDERS = {
     "hit": _sfx_hit,
     "crit": _sfx_crit,
@@ -333,6 +409,16 @@ SFX_BUILDERS = {
     "shop_bell": _sfx_shop_bell,
     "splat": _sfx_splat,
     "poison_tick": _sfx_poison_tick,
+    "puzzle_open": _sfx_puzzle_open,
+    "puzzle_fail": _sfx_puzzle_fail,
+    "unlock": _sfx_unlock,
+    "summon": _sfx_summon,
+    "chest_open": _sfx_chest_open,
+    "locked": _sfx_locked,
+    "mimic": _sfx_mimic,
+    "lever": _sfx_lever,
+    "plate": _sfx_plate,
+    "push": _sfx_push,
 }
 
 

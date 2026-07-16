@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Endless Depths</title>
-<link rel="stylesheet" href="web/style.css?v=2">
+<link rel="stylesheet" href="web/style.css?v=3">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128481;</text></svg>">
 </head>
 <body>
@@ -148,6 +148,22 @@
     </div>
   </div>
 
+  <!-- Puzzle overlay (the sealed rune door) -->
+  <div id="puzzle-overlay" class="overlay hidden">
+    <div class="overlay-box puzzle-box">
+      <div class="overlay-header"><h2 id="puzzle-title">Sealed Door</h2></div>
+      <pre id="puzzle-prompt" class="puzzle-prompt"></pre>
+      <pre id="puzzle-flash" class="puzzle-flash hidden"></pre>
+      <pre id="puzzle-history" class="puzzle-history hidden"></pre>
+      <div id="puzzle-buttons"></div>
+      <div id="puzzle-feedback" class="puzzle-feedback"></div>
+      <div class="overlay-buttons">
+        <button id="puzzle-close">Walk Away (Esc)</button>
+      </div>
+      <div class="hint">Tap a rune to answer &nbsp; 1-9: keyboard &nbsp; Esc: walk away</div>
+    </div>
+  </div>
+
   <!-- Settings overlay -->
   <div id="settings-overlay" class="overlay hidden">
     <div class="overlay-box settings-box">
@@ -196,6 +212,6 @@
 
 </div>
 <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
-<script src="web/main.js?v=2"></script>
+<script src="web/main.js?v=3"></script>
 </body>
 </html>

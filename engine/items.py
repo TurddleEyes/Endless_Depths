@@ -136,6 +136,13 @@ def generate_item(depth: int, rng, quality_bonus: float = 1.0) -> Item:
     return Item(_new_id(), "Gold", "gold", "*", rarity_name, amount, quantity=amount)
 
 
+def make_key(name: str) -> Item:
+    """Quest keys: the Iron Key opens locked chests, the Rune Key opens a
+    Hidden Key puzzle door. Worthless to merchants - their value is the
+    lock they open."""
+    return Item(_new_id(), name, "key", "~", "uncommon", 0)
+
+
 def make_cure_potion(depth: int) -> Item:
     """Guaranteed shop staple - poison is permanent until cured, so every
     merchant carries one."""

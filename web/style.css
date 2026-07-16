@@ -53,6 +53,53 @@ h1.died { color: var(--bad); }
 .settings-box { width: 340px; text-align: center; }
 .setting-btn { display: block; width: 260px; margin: 6px auto; }
 
+/* ---- puzzle overlay ---- */
+.puzzle-box { width: 560px; text-align: center; }
+.puzzle-prompt {
+  color: var(--text);
+  line-height: 1.55;
+  font-family: inherit;
+  white-space: pre-wrap;
+  text-align: left;
+  display: inline-block;
+  margin: 6px 0 4px;
+}
+.puzzle-flash {
+  font-family: inherit;
+  font-size: 1.3em;
+  font-weight: bold;
+  letter-spacing: 6px;
+  color: var(--warn);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 8px 16px;
+  margin: 6px auto;
+  display: inline-block;
+  line-height: 1.5;
+}
+.puzzle-history {
+  color: var(--dim);
+  font-family: inherit;
+  line-height: 1.5;
+  margin: 4px 0;
+}
+#puzzle-buttons {
+  display: grid;
+  gap: 6px;
+  justify-content: center;
+  margin: 10px auto 4px;
+  max-width: 480px;
+}
+.puzzle-btn {
+  min-width: 0;
+  margin: 0;
+  padding: 12px 10px;
+  font-size: 1.05em;
+}
+.puzzle-btn.lit { background: var(--accent); color: var(--bg); }
+.puzzle-btn:disabled { background: var(--bg); }
+.puzzle-feedback { color: var(--warn); min-height: 1.4em; margin: 6px 0 2px; }
+
 #loading-status { color: var(--warn); min-height: 1.4em; margin-bottom: 14px; }
 
 button {
@@ -403,6 +450,9 @@ h1.victory { color: var(--warn); }
     overflow-y: auto;
     padding: 10px;
   }
+  .puzzle-box { width: 96vw; }
+  .puzzle-prompt { font-size: 0.9em; }
+  .puzzle-btn { padding: 14px 6px; }
   .list-details { flex-direction: column; }
   .item-list { width: 100%; height: 30vh; }
   .item-list li { padding: 8px; }
