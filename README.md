@@ -40,8 +40,6 @@ Playable two ways:
 
 ## Play in the browser
 
-```
-
 ### Controls
 
 | Key | Action |
