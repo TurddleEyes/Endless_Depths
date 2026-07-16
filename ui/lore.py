@@ -4,6 +4,16 @@ dependency - used by both the tkinter desktop build and the browser build.
 
 TITLE = "ENDLESS DEPTHS"
 
+# Rotating title-screen flavor lines.
+TAGLINES = [
+    "An infinite dungeon roguelike",
+    "The Well is waiting.",
+    "No one has ever found the bottom.",
+    "Every floor is deeper than the last.",
+    "The merchants know the way out. They're not telling.",
+    "How deep are you willing to go?",
+]
+
 PAGES = [
     "They call it the Well. No one remembers digging it, and no one who\n"
     "has gone looking for its bottom has come back to describe one.\n\n"

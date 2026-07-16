@@ -678,6 +678,63 @@ WALL_TILE = [
     "aaamaaaaaaaamaaa",
 ]
 
+FLOOR_TILE_CRACKED = [
+    "aaaaaaaaaaaaaaaa",
+    "aabaaaaaacaaaaaa",
+    "aaaad aaaaaaaaaa".replace(" ", "a"),
+    "aaaaadaaaaaabaaa",
+    "aaaaaadaaaaaaaaa",
+    "abaaaaadaaaaaaaa",
+    "aaaaaaaadddaacaa",
+    "aaaacaaaaaadaaaa",
+    "aaaaaaaabaaadaaa",
+    "aacaaaaaaaaabdaa",
+    "aaaaaaacaaaaadaa",
+    "aaaaaaaaaaaaaaaa",
+    "abaaaacaaaabaaaa",
+    "aaaaaaaaaaaaaaca",
+    "aaacaaaaabaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+]
+
+FLOOR_TILE_MOSSY = [
+    "aaaaaaaaaaaaaaaa",
+    "aabaaaammaaaaaaa",
+    "aaaaaaammmaaaaaa",
+    "aaaaacaamaaabaaa",
+    "aaaaaaaaaaaaaaaa",
+    "abaaaaaabaaaaaaa",
+    "amaaaaaaaaaaacaa",
+    "ammacaaaaaaaaaaa",
+    "aamaaaaabaaaaaaa",
+    "aacaaaaaaaaabaaa",
+    "aaaaaaacaaaammaa",
+    "aaaaaaaaaaaamnaa",
+    "abaaaacaaaabaaaa",
+    "aaaaaaaaaaaaaaca",
+    "aaacaaaaabaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+]
+
+WALL_TILE_CRACKED = [
+    "hhhhhhhhhhhhhhhh",
+    "aaaaaaamaaaaaaaa",
+    "aaakaaamaaaaaaaa",
+    "aaakkaamaaaaaaaa",
+    "mmmmkmmmmmmmmmmm",
+    "aaamak aaaaamaaa".replace(" ", "a"),
+    "aaamaakaaaaamaaa",
+    "aaamaaakkaaamaaa",
+    "aaamaaaaakaamaaa",
+    "mmmmmmmmmmkmmmmm",
+    "aaaaaaamaakaaaaa",
+    "aaaaaaamaaakaaaa",
+    "aaaaaaamaaaakaaa",
+    "aaaaaaamaaaaaaaa",
+    "mmmmmmmmmmmmmmmm",
+    "aaamaaaaaaaamaaa",
+]
+
 STAIRS_TILE = [
     "aaaaaaaaaaaaaaaa",
     "aaaaaaaaaaaaaaaa",
@@ -705,7 +762,13 @@ _o = OUTLINE
 SPRITE_DEFS = {
     # tiles
     "floor": (FLOOR_TILE, {"a": "#43434f", "b": "#3a3a45", "c": "#4c4c59"}),
+    "floor2": (FLOOR_TILE_CRACKED, {"a": "#43434f", "b": "#3a3a45", "c": "#4c4c59",
+                                     "d": "#33333d"}),
+    "floor3": (FLOOR_TILE_MOSSY, {"a": "#43434f", "b": "#3a3a45", "c": "#4c4c59",
+                                   "m": "#3d5a44", "n": "#2c4634"}),
     "wall": (WALL_TILE, {"a": "#34343f", "m": "#1e1e26", "h": "#41414e"}),
+    "wall2": (WALL_TILE_CRACKED, {"a": "#34343f", "m": "#1e1e26", "h": "#41414e",
+                                   "k": "#26262e"}),
     "stairs": (STAIRS_TILE, {"a": "#43434f", "1": "#606070", "2": "#4c4c5a",
                               "3": "#3a3a46", "k": "#0a0a0e", "w": "#8fd9ef"}),
     # people
@@ -780,10 +843,32 @@ ITEM_KEYS = {
 }
 
 # Sprites that get a darkened "explored but not visible" variant.
-DIM_TILES = ("floor", "wall", "stairs",
+DIM_TILES = ("floor", "floor2", "floor3", "wall", "wall2", "stairs",
              "trap_spike", "trap_poison", "trap_teleport",
              "decor_bones", "decor_rubble", "decor_moss")
 DIM_FACTOR = 0.45
+
+# Deterministic per-tile texture variation, shared by both renderers so the
+# desktop and browser builds draw identical dungeons.
+FLOOR_VARIANTS = ("floor", "floor2", "floor3")
+WALL_VARIANTS = ("wall", "wall2")
+
+
+def _tile_hash(depth: int, x: int, y: int) -> int:
+    return (x * 73856093 ^ y * 19349663 ^ depth * 83492791) & 0xFFFFFFFF
+
+
+def floor_variant(depth: int, x: int, y: int) -> int:
+    h = _tile_hash(depth, x, y) % 10
+    if h >= 9:
+        return 2  # mossy
+    if h >= 7:
+        return 1  # cracked
+    return 0
+
+
+def wall_variant(depth: int, x: int, y: int) -> int:
+    return 1 if _tile_hash(depth, x, y) % 10 >= 8 else 0
 
 
 def _darken(hex_color: str, factor: float = DIM_FACTOR) -> str:

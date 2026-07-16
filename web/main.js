@@ -27,9 +27,25 @@ const LS_SAVE = "endless_depths_save";
 const LS_SCORES = "endless_depths_scores";
 const LS_SPEEDRUN_SCORES = "endless_depths_speedrun_scores";
 const LS_SEEN_LORE = "endless_depths_seen_lore";
+const LS_SETTINGS = "endless_depths_settings";
+
+const gameSettings = (() => {
+  let s = {};
+  try { s = JSON.parse(localStorage.getItem(LS_SETTINGS)) || {}; } catch {}
+  // Migrate the old single mute flag.
+  const legacyMuted = localStorage.getItem("endless_depths_muted") === "1";
+  return {
+    music_on: s.music_on ?? !legacyMuted,
+    sfx_on: s.sfx_on ?? !legacyMuted,
+    shake_on: s.shake_on ?? true,
+  };
+})();
+
+function persistSettings() {
+  localStorage.setItem(LS_SETTINGS, JSON.stringify(gameSettings));
+}
 
 const REPLAY_SPEEDS = [["1x", 130], ["2x", 45]]; // third press skips to end
-const LS_MUTED = "endless_depths_muted";
 
 let bridge = null;
 let atlas = {};            // sprite key -> offscreen canvas
@@ -103,6 +119,27 @@ async function boot() {
 
   lore.data = JSON.parse(bridge.lore_json());
   $("lore-title").textContent = lore.data.title;
+
+  // Title flair: a lineup of the things waiting below, plus rotating
+  // taglines from the shared lore module.
+  const monsterRow = $("title-monsters");
+  for (const key of ["rat", "goblin", "skeleton", "wraith", "knight", "lich"]) {
+    const c = document.createElement("canvas");
+    c.width = 48;
+    c.height = 48;
+    const g = c.getContext("2d");
+    g.imageSmoothingEnabled = false;
+    g.drawImage(atlas[key], 0, 0, 48, 48);
+    monsterRow.appendChild(c);
+  }
+  let taglineIdx = 0;
+  setInterval(() => {
+    if (mode === "title" && lore.data.taglines) {
+      taglineIdx = (taglineIdx + 1) % lore.data.taglines.length;
+      $("title-tagline").textContent = lore.data.taglines[taglineIdx];
+    }
+  }, 3000);
+
   if (!localStorage.getItem(LS_SEEN_LORE)) {
     showLore(true);
   } else {
@@ -159,8 +196,11 @@ const audio = {
   cache: {},
   musicEl: null,
   currentTrack: null,
-  muted: localStorage.getItem(LS_MUTED) === "1",
   ready: false,
+
+  get muted() {
+    return !gameSettings.music_on && !gameSettings.sfx_on;
+  },
 
   init() {
     // Pre-synthesize SFX one at a time so the UI stays responsive;
@@ -186,7 +226,7 @@ const audio = {
   },
 
   play(name) {
-    if (this.muted) return;
+    if (!gameSettings.sfx_on) return;
     const el = this.synth(name);
     if (!el) return;
     const inst = el.cloneNode();
@@ -198,7 +238,7 @@ const audio = {
     if (this.currentTrack === track && this.musicEl && !this.musicEl.paused) return;
     this.stopMusic();
     this.currentTrack = track;
-    if (!track || this.muted) return;
+    if (!track || !gameSettings.music_on) return;
     const el = this.synth(track);
     if (!el) return;
     this.musicEl = el.cloneNode();
@@ -212,9 +252,15 @@ const audio = {
   },
 
   setMuted(m) {
-    this.muted = m;
-    localStorage.setItem(LS_MUTED, m ? "1" : "0");
+    gameSettings.music_on = !m;
+    gameSettings.sfx_on = !m;
+    persistSettings();
     if (m) this.stopMusic();
+    else this.playMusic(this.currentTrack);
+  },
+
+  applySettings() {
+    if (!gameSettings.music_on) this.stopMusic();
     else this.playMusic(this.currentTrack);
   },
 };
@@ -227,6 +273,7 @@ function showScreen(name) {
   }
   $("inventory-overlay").classList.add("hidden");
   $("shop-overlay").classList.add("hidden");
+  $("settings-overlay").classList.add("hidden");
   $("replay-controls").classList.toggle("hidden", mode !== "replay");
 }
 
@@ -670,10 +717,39 @@ function floatNum(x, y, text, color) {
 }
 
 function shake() {
+  if (!gameSettings.shake_on) return;
   const wrap = $("canvas-wrap");
   wrap.classList.remove("shake");
   void wrap.offsetWidth; // restart animation
   wrap.classList.add("shake");
+}
+
+/* ------------------------------------------------------------ settings */
+let settingsReturnMode = "title";
+
+function refreshSettingsLabels() {
+  $("setting-music").textContent = `Music: ${gameSettings.music_on ? "On" : "Off"}`;
+  $("setting-sfx").textContent = `Sound Effects: ${gameSettings.sfx_on ? "On" : "Off"}`;
+  $("setting-shake").textContent = `Screen Shake: ${gameSettings.shake_on ? "On" : "Off"}`;
+}
+
+function openSettings() {
+  settingsReturnMode = mode;
+  mode = "settings";
+  refreshSettingsLabels();
+  $("settings-overlay").classList.remove("hidden");
+}
+
+function closeSettings() {
+  $("settings-overlay").classList.add("hidden");
+  mode = settingsReturnMode;
+}
+
+function toggleSetting(key) {
+  gameSettings[key] = !gameSettings[key];
+  persistSettings();
+  if (key === "music_on") audio.applySettings();
+  refreshSettingsLabels();
 }
 
 function fadeIn() {
@@ -713,9 +789,12 @@ function render() {
       const tile = floorData.tiles[fy][fx];
       const dim = visible ? "" : "_dim";
 
+      const variant = floorData.variants ? floorData.variants[fy][fx] : "0";
       let base = "floor";
-      if (tile === "#") base = "wall";
+      if (tile === "#") base = variant === "1" ? "wall2" : "wall";
       else if (tile === ">") base = "stairs";
+      else if (variant === "1") base = "floor2";
+      else if (variant === "2") base = "floor3";
       blit(base + dim, col, row);
 
       const key = fx + "," + fy;
@@ -764,8 +843,8 @@ function renderPanel() {
   $("hp-text").textContent = `HP  ${p.hp}/${p.max_hp}`;
   $("xp-fill").style.width = (100 * p.xp / Math.max(1, p.xp_to_next)) + "%";
   const st = $("stat-status");
-  if (p.poison_turns > 0) {
-    st.textContent = `Status: Poisoned (${p.poison_turns})`;
+  if (p.poisoned) {
+    st.textContent = "Status: POISONED - find a cure!";
     st.style.color = "#58c058";
   } else {
     st.textContent = "Status: Healthy";
@@ -988,6 +1067,14 @@ document.addEventListener("keydown", (e) => {
     toggleFullscreen();
     return;
   }
+  if ((e.key === "o" || e.key === "O") && (mode === "title" || mode === "play")) {
+    openSettings();
+    return;
+  }
+  if (mode === "settings") {
+    if (e.key === "Escape") closeSettings();
+    return;
+  }
   switch (mode) {
     case "title":
       if (e.key === "n" || e.key === "N" || e.key === "Enter") startNewGame();
@@ -1117,6 +1204,12 @@ $("replay-stop-btn").addEventListener("click", stopReplay);
 $("stat-seed").addEventListener("click", () => {
   if (snap) navigator.clipboard.writeText(String(snap.seed)).catch(() => {});
 });
+
+$("btn-settings").addEventListener("click", openSettings);
+$("settings-close").addEventListener("click", closeSettings);
+$("setting-music").addEventListener("click", () => toggleSetting("music_on"));
+$("setting-sfx").addEventListener("click", () => toggleSetting("sfx_on"));
+$("setting-shake").addEventListener("click", () => toggleSetting("shake_on"));
 $("inv-action").addEventListener("click", inventoryActivate);
 $("inv-drop").addEventListener("click", inventoryDrop);
 $("inv-close").addEventListener("click", closeInventory);

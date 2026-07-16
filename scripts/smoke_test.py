@@ -183,10 +183,23 @@ def test_full_playthrough_simulation():
             break
 
         if state.pending_shop:
+            # Stock up on a cure if the shop has one we can afford - poison
+            # is permanent, so a prudent bot (and player) buys insurance.
+            cure_stock = next((i for i in state.floor.shop_stock
+                               if i.effect == "cure" and state.player.gold >= i.value), None)
+            if cure_stock and not any(i.effect == "cure" for i in state.player.inventory):
+                state.buy_item(cure_stock)
             state.close_shop()
             continue
 
         auto_equip_upgrades()
+
+        if any(e.get("type") == "poison" for e in state.player.status_effects):
+            cure = next((i for i in state.player.inventory
+                         if i.category == "potion" and i.effect == "cure"), None)
+            if cure:
+                state.use_item(cure)
+                continue
 
         if state.player.hp < state.player.max_hp * 0.65:
             heal_potion = next(
@@ -200,11 +213,30 @@ def test_full_playthrough_simulation():
         player_pos = (state.player.x, state.player.y)
         # After lingering too long on one floor (e.g. oscillating between
         # equidistant loot), stop looting and head straight for the stairs.
+        # When poisoned without a cure, beeline for this floor's shop if it
+        # has one (bumping the shopkeeper opens it), else rush the stairs -
+        # exactly what a sane player does.
         turns_on_floor = state.player.turns - turns_at_floor_start
-        if turns_on_floor > 300:
-            target = state.floor.stairs_pos
-        else:
-            target = nearest_item_target(state.floor, player_pos) or state.floor.stairs_pos
+        poisoned_no_cure = (
+            any(e.get("type") == "poison" for e in state.player.status_effects)
+            and not any(i.effect == "cure" for i in state.player.inventory)
+        )
+        target = None
+        if poisoned_no_cure and state.floor.shop_pos:
+            sx, sy = state.floor.shop_pos
+            if abs(sx - player_pos[0]) + abs(sy - player_pos[1]) == 1:
+                state.try_move_player(sx - player_pos[0], sy - player_pos[1])
+                continue  # shop opens; handled at the top of the loop
+            neighbors = [(sx + dx, sy + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                         if state.floor.is_walkable(sx + dx, sy + dy)]
+            if neighbors:
+                target = min(neighbors,
+                             key=lambda t: abs(t[0] - player_pos[0]) + abs(t[1] - player_pos[1]))
+        if target is None:
+            if turns_on_floor > 300 or poisoned_no_cure:
+                target = state.floor.stairs_pos
+            else:
+                target = nearest_item_target(state.floor, player_pos) or state.floor.stairs_pos
         # Give bosses a wide berth, like a sane player would - fight regular
         # monsters but only engage a boss if there's no way around it.
         boss_zone = set()
@@ -318,17 +350,38 @@ def test_traps():
 
 
 def test_poison_status():
+    from engine.items import make_cure_potion
+
     state = GameState(seed=43)
     state.new_game()
-    state.player.max_hp = 100
-    state.player.hp = 100
-    state.player.status_effects.append({"type": "poison", "turns": 2, "dmg": 3})
-    state.wait()
-    assert state.player.hp == 97, f"Poison should tick on wait, hp={state.player.hp}"
-    state.wait()
-    assert state.player.hp == 94
-    assert not state.player.status_effects, "Poison should expire after its turns run out"
-    print("OK: poison ticks damage each turn and expires")
+    state.player.max_hp = 1000
+    state.player.hp = 1000
+    state.floor.monsters.clear()  # isolate poison from monster damage
+    state.player.status_effects.append({"type": "poison", "dmg": 3})
+    # Poison never wears off on its own; it ticks every other turn.
+    hp_start = state.player.hp
+    for _ in range(20):
+        state.wait()
+    assert state.player.hp == hp_start - 10 * 3, \
+        f"poison should tick every other turn, hp={state.player.hp}"
+    assert any(e.get("type") == "poison" for e in state.player.status_effects), \
+        "poison must persist until cured"
+    # ...but it never lands the killing blow: hp bottoms out at 1.
+    state.player.hp = 2
+    for _ in range(4):
+        state.wait()
+    assert state.player.hp == 1 and not state.game_over, "poison must not kill outright"
+    # Only a cure potion ends it.
+    cure = make_cure_potion(1)
+    state.player.inventory.append(cure)
+    state.use_item(cure)
+    assert not any(e.get("type") == "poison" for e in state.player.status_effects)
+    # Every shop stocks a cure so a poisoned player always has an out.
+    from engine.shop import generate_shop_inventory
+    import random
+    stock = generate_shop_inventory(7, random.Random(2))
+    assert any(i.effect == "cure" for i in stock), "every shop must stock a cure potion"
+    print("OK: poison persists until cured; every shop stocks a cure potion")
 
 
 def test_fireball_scroll():
@@ -458,6 +511,12 @@ def _run_scripted_bot(state, max_iters=20000, stop_depth=12):
                 state.buy_item(state.floor.shop_stock[0])
             state.close_shop()
             continue
+        if any(e.get("type") == "poison" for e in state.player.status_effects):
+            cure = next((i for i in state.player.inventory
+                         if i.category == "potion" and i.effect == "cure"), None)
+            if cure:
+                state.use_item(cure)
+                continue
         for item in list(state.player.inventory):
             if item.category == "weapon" and (
                 state.player.equipped_weapon is None

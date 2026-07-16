@@ -567,9 +567,11 @@ def track_for_depth(depth: int, boss_alive: bool = False) -> str:
 # Manager
 # ----------------------------------------------------------------------
 class AudioManager:
-    def __init__(self, cache_dir: str, muted: bool = False, autostart: bool = True):
+    def __init__(self, cache_dir: str, muted: bool = False, autostart: bool = True,
+                  music_on: bool = True, sfx_on: bool = True):
         self.cache_dir = cache_dir
-        self.muted = muted
+        self.music_on = music_on and not muted
+        self.sfx_on = sfx_on and not muted
         self.disabled = os.environ.get("ENDLESS_DEPTHS_NO_AUDIO") == "1"
         self.ready = False
         self._player_cmd = None if self.disabled else self._detect_player()
@@ -578,6 +580,11 @@ class AudioManager:
         self._sfx_procs: list = []
         if not self.disabled and autostart:
             threading.Thread(target=self.generate_all, daemon=True).start()
+
+    @property
+    def muted(self) -> bool:
+        """Master-mute view over the two channel toggles."""
+        return not (self.music_on or self.sfx_on)
 
     @staticmethod
     def _detect_player():
@@ -615,11 +622,11 @@ class AudioManager:
                 builder().write(path)
         self.ready = True
 
-    def _can_play(self) -> bool:
-        return not self.disabled and not self.muted and self.ready
+    def _base_ok(self) -> bool:
+        return not self.disabled and self.ready
 
     def play(self, name: str):
-        if not self._can_play() or name not in SFX_BUILDERS:
+        if not self._base_ok() or not self.sfx_on or name not in SFX_BUILDERS:
             return
         path = self._path(name)
         if sys.platform == "win32":
@@ -643,7 +650,7 @@ class AudioManager:
     def play_music(self, name):
         """Set the looping background track (None = stop music)."""
         self._want_music = name
-        if name is None or self.muted:
+        if name is None or not self.music_on:
             self._stop_music_proc()
             return
         self.tick()
@@ -653,7 +660,7 @@ class AudioManager:
         self._reap()
         if self.disabled or sys.platform == "win32":
             return
-        if self._want_music and self._can_play() and self._player_cmd:
+        if self._want_music and self._base_ok() and self.music_on and self._player_cmd:
             if self._music_proc is None or self._music_proc.poll() is not None:
                 try:
                     self._music_proc = subprocess.Popen(
@@ -665,11 +672,23 @@ class AudioManager:
                     self._music_proc = None
 
     def set_muted(self, muted: bool):
-        self.muted = muted
+        """Master mute: flips both channels together (the M key)."""
+        self.music_on = not muted
+        self.sfx_on = not muted
         if muted:
             self._stop_music_proc()
         else:
             self.tick()
+
+    def set_music(self, on: bool):
+        self.music_on = on
+        if not on:
+            self._stop_music_proc()
+        else:
+            self.tick()
+
+    def set_sfx(self, on: bool):
+        self.sfx_on = on
 
     def _stop_music_proc(self):
         if self._music_proc and self._music_proc.poll() is None:

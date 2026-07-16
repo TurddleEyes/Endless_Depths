@@ -37,7 +37,21 @@ h1 { font-size: 2.4em; color: var(--accent); letter-spacing: 4px; }
 h1.died { color: var(--bad); }
 .subtitle { color: var(--dim); margin: 6px 0 18px; }
 
-#title-hero { image-rendering: pixelated; margin-bottom: 18px; }
+#title-hero {
+  image-rendering: pixelated;
+  margin-bottom: 4px;
+  animation: bob 2.4s ease-in-out infinite;
+}
+@keyframes bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+
+#title-monsters { display: flex; gap: 14px; margin-bottom: 14px; }
+#title-monsters canvas { image-rendering: pixelated; opacity: 0.85; }
+
+.settings-box { width: 340px; text-align: center; }
+.setting-btn { display: block; width: 260px; margin: 6px auto; }
 
 #loading-status { color: var(--warn); min-height: 1.4em; margin-bottom: 14px; }
 

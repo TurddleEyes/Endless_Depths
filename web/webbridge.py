@@ -48,7 +48,8 @@ def hero_sprite_json(weapon, armor, accessory, poisoned, rarity) -> str:
 
 
 def lore_json() -> str:
-    return json.dumps({"title": lore_data.TITLE, "pages": lore_data.PAGES})
+    return json.dumps({"title": lore_data.TITLE, "pages": lore_data.PAGES,
+                        "taglines": lore_data.TAGLINES})
 
 
 def sfx_names_json() -> str:
@@ -263,11 +264,27 @@ def floor_data_json() -> str:
                 key = _decor_key(floor.depth, x, y)
                 if key:
                     decor.append([x, y, key])
+    # Per-tile texture variant digits (floor and wall variants share the
+    # digit slot; JS picks the right sprite family from the tile char).
+    variants = []
+    for y in range(floor.height):
+        row = []
+        for x in range(floor.width):
+            tile = floor.tiles[y][x]
+            if tile == C.TILE_WALL:
+                row.append(str(S.wall_variant(floor.depth, x, y)))
+            elif tile == C.TILE_FLOOR or tile == C.TILE_SHOPKEEPER:
+                row.append(str(S.floor_variant(floor.depth, x, y)))
+            else:
+                row.append("0")
+        variants.append("".join(row))
+
     return json.dumps({
         "depth": floor.depth,
         "width": floor.width,
         "height": floor.height,
         "tiles": ["".join(row) for row in floor.tiles],
+        "variants": variants,
         "stairs": list(floor.stairs_pos),
         "shop": list(floor.shop_pos) if floor.shop_pos else None,
         "decor": decor,
@@ -303,7 +320,7 @@ def snapshot_json() -> str:
             "level": p.level, "xp": p.xp, "xp_to_next": p.xp_to_next,
             "gold": p.gold, "attack": p.attack_power, "defense": p.defense_power,
             "kills": p.kills, "turns": p.turns,
-            "poison_turns": poison["turns"] if poison else 0,
+            "poisoned": poison is not None,
             "weapon": p.equipped_weapon.name if p.equipped_weapon else None,
             "armor": p.equipped_armor.name if p.equipped_armor else None,
             "accessory": p.equipped_accessory.name if p.equipped_accessory else None,

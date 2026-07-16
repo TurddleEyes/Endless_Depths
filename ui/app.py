@@ -69,10 +69,16 @@ class App(tk.Tk):
         self._title_pulse_idx = 0
 
         self.settings = save_module.load_settings()
+        # Migrate the old single "muted" flag to the split music/sfx toggles.
+        legacy_muted = bool(self.settings.get("muted", False))
+        self.settings.setdefault("music_on", not legacy_muted)
+        self.settings.setdefault("sfx_on", not legacy_muted)
+        self.settings.setdefault("shake_on", True)
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.audio = AudioManager(
             cache_dir=os.path.join(base_dir, "assets"),
-            muted=bool(self.settings.get("muted", False)),
+            music_on=bool(self.settings["music_on"]),
+            sfx_on=bool(self.settings["sfx_on"]),
         )
 
         # Pixel-art sprites (must be built after the Tk root exists).
@@ -98,6 +104,7 @@ class App(tk.Tk):
         self._build_gameover_screen()
         self._build_victory_screen()
         self._build_replay_picker()
+        self._build_settings_overlay()
 
         if self.settings.get("seen_lore"):
             self._show_title()
@@ -111,16 +118,26 @@ class App(tk.Tk):
     # Screen construction
     # ------------------------------------------------------------------
     def _build_title_screen(self):
-        self.title_frame = tk.Frame(self, bg=T.BG, width=880, height=760)
+        self.title_frame = tk.Frame(self, bg=T.BG, width=880, height=800)
         self.title_frame.pack_propagate(False)
 
         self.title_label = tk.Label(self.title_frame, text="ENDLESS DEPTHS",
                                       font=T.TITLE_FONT, bg=T.BG, fg=T.ACCENT)
-        self.title_label.pack(pady=(22, 4))
-        tk.Label(self.title_frame, text="An infinite dungeon roguelike",
-                  font=T.UI_FONT, bg=T.BG, fg=T.TEXT_DIM).pack(pady=(0, 8))
+        self.title_label.pack(pady=(18, 4))
+        self.tagline_label = tk.Label(self.title_frame, text=lore_data.TAGLINES[0],
+                                        font=T.UI_FONT, bg=T.BG, fg=T.TEXT_DIM)
+        self.tagline_label.pack(pady=(0, 8))
 
-        tk.Label(self.title_frame, image=self.big_hero, bg=T.BG).pack(pady=(0, 8))
+        tk.Label(self.title_frame, image=self.big_hero, bg=T.BG).pack(pady=(0, 2))
+
+        # A lineup of the things waiting below - pure flavor.
+        monster_row = tk.Frame(self.title_frame, bg=T.BG)
+        monster_row.pack(pady=(0, 8))
+        self._title_monster_imgs = []
+        for key in ("rat", "goblin", "skeleton", "wraith", "knight", "lich"):
+            img = sprite_defs.build_sprite(key, zoom=3)
+            self._title_monster_imgs.append(img)  # keep refs or tk drops them
+            tk.Label(monster_row, image=img, bg=T.BG).pack(side="left", padx=6)
 
         btn_style = dict(font=T.UI_FONT_BOLD, width=22, bg=T.PANEL_BG, fg=T.TEXT_MAIN,
                           activebackground=T.ACCENT, activeforeground=T.BG,
@@ -148,8 +165,14 @@ class App(tk.Tk):
                    command=self._open_replay_picker, **btn_style).pack(pady=5)
         tk.Button(self.title_frame, text="Lore (L)", command=lambda: self._show_lore(first_time=False),
                    **btn_style).pack(pady=5)
-        tk.Button(self.title_frame, text="Quit", command=self._on_close,
-                   **btn_style).pack(pady=5)
+        bottom_row = tk.Frame(self.title_frame, bg=T.BG)
+        bottom_row.pack(pady=5)
+        half_style = dict(btn_style)
+        half_style["width"] = 10
+        tk.Button(bottom_row, text="Settings (O)", command=self._open_settings,
+                   **half_style).pack(side="left", padx=4)
+        tk.Button(bottom_row, text="Quit", command=self._on_close,
+                   **half_style).pack(side="left", padx=4)
 
         scores_row = tk.Frame(self.title_frame, bg=T.BG)
         scores_row.pack(pady=(16, 0))
@@ -163,6 +186,51 @@ class App(tk.Tk):
         self.title_status_label = tk.Label(self.title_frame, text="", font=T.UI_FONT,
                                              bg=T.BG, fg=T.TEXT_BAD)
         self.title_status_label.pack(pady=(8, 0))
+
+    def _build_settings_overlay(self):
+        self.settings_frame = tk.Frame(self, bg=T.PANEL_BG, highlightthickness=2,
+                                         highlightbackground=T.ACCENT)
+        f = self.settings_frame
+        tk.Label(f, text="Settings", font=T.HEADER_FONT, bg=T.PANEL_BG,
+                  fg=T.ACCENT).pack(pady=(12, 10))
+        style = dict(font=T.UI_FONT_BOLD, width=26, bg=T.BG, fg=T.TEXT_MAIN,
+                      relief="flat", activebackground=T.ACCENT, activeforeground=T.BG)
+        self.setting_music_btn = tk.Button(f, command=lambda: self._toggle_setting("music_on"), **style)
+        self.setting_music_btn.pack(pady=4, padx=20)
+        self.setting_sfx_btn = tk.Button(f, command=lambda: self._toggle_setting("sfx_on"), **style)
+        self.setting_sfx_btn.pack(pady=4, padx=20)
+        self.setting_shake_btn = tk.Button(f, command=lambda: self._toggle_setting("shake_on"), **style)
+        self.setting_shake_btn.pack(pady=4, padx=20)
+        tk.Button(f, text="Close (Esc)", command=self._close_settings, **style).pack(pady=(12, 14))
+
+    def _refresh_settings_labels(self):
+        def onoff(key):
+            return "On" if self.settings.get(key, True) else "Off"
+        self.setting_music_btn.configure(text=f"Music: {onoff('music_on')}")
+        self.setting_sfx_btn.configure(text=f"Sound Effects: {onoff('sfx_on')}")
+        self.setting_shake_btn.configure(text=f"Screen Shake: {onoff('shake_on')}")
+
+    def _toggle_setting(self, key: str):
+        self.settings[key] = not self.settings.get(key, True)
+        save_module.save_settings(self.settings)
+        if key == "music_on":
+            self.audio.set_music(self.settings[key])
+            if self.settings[key]:
+                self._update_music() if self.state else self.audio.play_music("depths")
+        elif key == "sfx_on":
+            self.audio.set_sfx(self.settings[key])
+        self._refresh_settings_labels()
+        self._update_footer()
+
+    def _open_settings(self):
+        self._settings_return_mode = self.mode
+        self.mode = "settings"
+        self._refresh_settings_labels()
+        self.settings_frame.place(relx=0.5, rely=0.5, anchor="center")
+
+    def _close_settings(self):
+        self.settings_frame.place_forget()
+        self.mode = getattr(self, "_settings_return_mode", "title")
 
     def _build_lore_screen(self):
         self.lore_frame = tk.Frame(self, bg=T.BG, width=860, height=640)
@@ -256,7 +324,7 @@ class App(tk.Tk):
         sound = "off" if self.audio.muted else "on"
         self.footer_label.configure(
             text=("Move: arrows/WASD/hjkl  |  E: inventory  |  .: wait  |  "
-                  f"M: sound ({sound})  |  F11: fullscreen  |  walk into stairs to descend"))
+                  f"M: sound ({sound})  |  O: settings  |  F11: fullscreen"))
 
     def _build_stat_panel(self, panel: tk.Frame):
         tk.Label(panel, text="ENDLESS DEPTHS", font=T.HEADER_FONT,
@@ -471,6 +539,7 @@ class App(tk.Tk):
         self.inventory_frame.place_forget()
         self.shop_frame.place_forget()
         self.replay_picker_frame.place_forget()
+        self.settings_frame.place_forget()
 
     def _show_title(self):
         self._hide_all()
@@ -767,6 +836,10 @@ class App(tk.Tk):
         if self.mode == "title":
             self._title_pulse_idx = (self._title_pulse_idx + 1) % len(TITLE_PULSE_COLORS)
             self.title_label.configure(fg=TITLE_PULSE_COLORS[self._title_pulse_idx])
+            # Rotate the tagline every ~3 seconds (6 pulse ticks).
+            if self._title_pulse_idx % len(TITLE_PULSE_COLORS) == 0:
+                self._tagline_idx = (getattr(self, "_tagline_idx", 0) + 1) % len(lore_data.TAGLINES)
+                self.tagline_label.configure(text=lore_data.TAGLINES[self._tagline_idx])
         self.after(500, self._title_tick)
 
     # ------------------------------------------------------------------
@@ -793,6 +866,13 @@ class App(tk.Tk):
             return
         if event.keysym == "F11":
             self._toggle_fullscreen()
+            return
+        if event.keysym in ("o", "O") and self.mode in ("title", "play"):
+            self._open_settings()
+            return
+        if self.mode == "settings":
+            if event.keysym == "Escape":
+                self._close_settings()
             return
         if self.mode == "play":
             self._handle_play_key(event)
@@ -865,7 +945,8 @@ class App(tk.Tk):
 
     def _toggle_mute(self):
         self.audio.set_muted(not self.audio.muted)
-        self.settings["muted"] = self.audio.muted
+        self.settings["music_on"] = self.audio.music_on
+        self.settings["sfx_on"] = self.audio.sfx_on
         save_module.save_settings(self.settings)
         self._update_footer()
         if not self.audio.muted:
@@ -1090,6 +1171,8 @@ class App(tk.Tk):
                                               fill="#f2c94c", outline="", tags="fx")
 
     def _shake(self, intensity: int):
+        if not self.settings.get("shake_on", True):
+            return
         seq = []
         sign = 1
         for step in range(intensity, 0, -1):
@@ -1257,13 +1340,14 @@ class App(tk.Tk):
         self._render_panel()
         self._render_log()
 
-    def _tile_sprite_key(self, tile: str, visible: bool) -> str:
+    def _tile_sprite_key(self, tile: str, visible: bool, fx: int, fy: int) -> str:
+        depth = self.state.floor.depth
         if tile == C.TILE_WALL:
-            base = "wall"
+            base = sprite_defs.WALL_VARIANTS[sprite_defs.wall_variant(depth, fx, fy)]
         elif tile == C.TILE_STAIRS:
             base = "stairs"
-        else:
-            base = "floor"  # shopkeeper stands on a floor tile
+        else:  # floor (the shopkeeper stands on a floor tile)
+            base = sprite_defs.FLOOR_VARIANTS[sprite_defs.floor_variant(depth, fx, fy)]
         return base if visible else base + "_dim"
 
     def _monster_sprite_key(self, monster) -> str:
@@ -1344,7 +1428,8 @@ class App(tk.Tk):
                 sx, sy = col * ts, row * ts
                 suffix = "" if visible else "_dim"
 
-                canvas.create_image(sx, sy, image=sprites[self._tile_sprite_key(tile, visible)],
+                canvas.create_image(sx, sy,
+                                     image=sprites[self._tile_sprite_key(tile, visible, fx, fy)],
                                      anchor="nw")
 
                 trap = floor.trap_at(fx, fy)
@@ -1417,7 +1502,7 @@ class App(tk.Tk):
 
         poison = next((e for e in p.status_effects if e.get("type") == "poison"), None)
         if poison:
-            self.status_label.configure(text=f"Status: Poisoned ({poison['turns']})", fg="#58c058")
+            self.status_label.configure(text="Status: POISONED - find a cure!", fg="#58c058")
         else:
             self.status_label.configure(text="Status: Healthy", fg=T.TEXT_DIM)
 

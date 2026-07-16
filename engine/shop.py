@@ -1,7 +1,7 @@
 """Shop inventory generation and buy/sell transactions."""
 from __future__ import annotations
 
-from .items import Item, generate_item
+from .items import Item, generate_item, make_cure_potion
 
 SELL_RATIO = 0.5
 SHOP_QUALITY_BONUS = 1.15
@@ -18,12 +18,15 @@ def shop_price_multiplier(depth: int) -> float:
 
 def generate_shop_inventory(depth: int, rng, n_items: int = 6) -> list:
     stock = []
-    for _ in range(n_items):
+    for _ in range(n_items - 1):
         item = generate_item(depth, rng, quality_bonus=SHOP_QUALITY_BONUS)
         while item.category == "gold":  # merchants don't sell raw gold piles
             item = generate_item(depth, rng, quality_bonus=SHOP_QUALITY_BONUS)
-        item.value = max(1, round(item.value * shop_price_multiplier(depth)))
         stock.append(item)
+    # Poison is permanent until cured, so every merchant carries a cure.
+    stock.append(make_cure_potion(depth))
+    for item in stock:
+        item.value = max(1, round(item.value * shop_price_multiplier(depth)))
     return stock
 
 

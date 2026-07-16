@@ -173,7 +173,7 @@ class GameState:
             if self.player.hp <= 0:
                 self._die()
         elif trap.kind == "poison":
-            self._apply_poison(turns=5, dmg=max(1, 1 + self.depth // 5))
+            self._apply_poison(dmg=max(1, 1 + self.depth // 6))
             self._log("A cloud of toxic gas bursts from a hidden vent!")
             self._emit("trap", kind="poison", x=trap.x, y=trap.y)
         elif trap.kind == "teleport":
@@ -182,13 +182,14 @@ class GameState:
             self._teleport_player()
             self._emit("teleport")
 
-    def _apply_poison(self, turns: int, dmg: int):
+    def _apply_poison(self, dmg: int):
+        # Poison never wears off on its own - only a Potion of Cure (or
+        # dying) ends it. Re-poisoning just keeps the strongest dose.
         for eff in self.player.status_effects:
             if eff.get("type") == "poison":
-                eff["turns"] = max(eff["turns"], turns)
                 eff["dmg"] = max(eff["dmg"], dmg)
                 return
-        self.player.status_effects.append({"type": "poison", "turns": turns, "dmg": dmg})
+        self.player.status_effects.append({"type": "poison", "dmg": dmg})
         self._emit("poisoned")
 
     def _pickup_at(self, x: int, y: int):
@@ -359,16 +360,21 @@ class GameState:
     def _tick_status_effects(self):
         for eff in list(self.player.status_effects):
             if eff.get("type") == "poison":
-                self.player.hp -= eff["dmg"]
-                self._log(f"Poison courses through you ({eff['dmg']} damage).")
-                self._emit("poison_tick", dmg=eff["dmg"])
-                eff["turns"] -= 1
-                if eff["turns"] <= 0:
-                    self.player.status_effects.remove(eff)
-                    self._log("The poison wears off.")
-                if self.player.hp <= 0:
-                    self._die()
-                    return
+                # Ticks every other turn: poison is permanent until cured,
+                # so the drain is slow enough to actually reach a shop.
+                if self.player.turns % 2 == 0:
+                    continue
+                # Poison grinds you down to death's door but never lands the
+                # killing blow itself - monsters will happily finish the job.
+                # Permanent-until-cured poison would otherwise be a
+                # guaranteed death sentence before the first shop.
+                if self.player.hp > 1:
+                    dealt = min(eff["dmg"], self.player.hp - 1)
+                    self.player.hp -= dealt
+                    self._log(f"Poison courses through you ({dealt} damage).")
+                    self._emit("poison_tick", dmg=dealt)
+                    if self.player.hp == 1:
+                        self._log("The poison leaves you clinging to life - find a cure!")
 
     def _process_monsters(self):
         floor = self.floor
@@ -393,8 +399,8 @@ class GameState:
                 player.hp -= damage
                 self._log(msg)
                 self._emit("player_hit", dmg=damage, crit=crit)
-                if "Spider" in m.name and self.rng.random() < 0.3:
-                    self._apply_poison(turns=3, dmg=max(1, 1 + self.depth // 6))
+                if "Spider" in m.name and self.rng.random() < 0.2:
+                    self._apply_poison(dmg=max(1, 1 + self.depth // 8))
                     self._log("The spider's venom seeps into the wound!")
                 if player.hp <= 0:
                     self._die()

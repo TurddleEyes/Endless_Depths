@@ -13,8 +13,9 @@
   <!-- Title screen -->
   <div id="title-screen" class="screen">
     <h1 id="game-title">ENDLESS DEPTHS</h1>
-    <p class="subtitle">An infinite dungeon roguelike</p>
+    <p class="subtitle" id="title-tagline">An infinite dungeon roguelike</p>
     <canvas id="title-hero" width="128" height="128"></canvas>
+    <div id="title-monsters"></div>
     <div id="loading-status">Loading Python engine&hellip;</div>
     <div id="title-buttons" class="hidden">
       <div id="seed-row">
@@ -26,6 +27,7 @@
       <button id="btn-continue" disabled>Continue (C)</button>
       <button id="btn-watch">Watch Replay (V)</button>
       <button id="btn-lore">Lore (L)</button>
+      <button id="btn-settings">Settings (O)</button>
     </div>
     <div id="title-scores-row">
       <pre id="title-highscores"></pre>
@@ -143,6 +145,17 @@
         <button id="shop-close">Leave Shop (Esc)</button>
       </div>
       <div class="hint">Click: view &nbsp; Double-click/Enter: buy or sell &nbsp; Tab: switch pane &nbsp; Esc: leave</div>
+    </div>
+  </div>
+
+  <!-- Settings overlay -->
+  <div id="settings-overlay" class="overlay hidden">
+    <div class="overlay-box settings-box">
+      <div class="overlay-header"><h2>Settings</h2></div>
+      <button id="setting-music" class="setting-btn">Music: On</button>
+      <button id="setting-sfx" class="setting-btn">Sound Effects: On</button>
+      <button id="setting-shake" class="setting-btn">Screen Shake: On</button>
+      <div class="overlay-buttons"><button id="settings-close">Close (Esc)</button></div>
     </div>
   </div>
 

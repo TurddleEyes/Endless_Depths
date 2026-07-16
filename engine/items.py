@@ -136,6 +136,14 @@ def generate_item(depth: int, rng, quality_bonus: float = 1.0) -> Item:
     return Item(_new_id(), "Gold", "gold", "*", rarity_name, amount, quantity=amount)
 
 
+def make_cure_potion(depth: int) -> Item:
+    """Guaranteed shop staple - poison is permanent until cured, so every
+    merchant carries one."""
+    value = round(6 * C.gold_scale(depth))
+    return Item(_new_id(), "Potion of Cure", "potion", "!", "common", value,
+                 effect="cure", magnitude=0)
+
+
 def use_item(player, item: Item) -> str:
     """Apply a consumable's effect to the player. Returns a log message."""
     if item.category == "potion":
