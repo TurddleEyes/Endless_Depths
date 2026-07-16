@@ -47,6 +47,7 @@ Playable two ways:
 | Key | Action |
 | --- | --- |
 | Arrows / WASD | Move / attack (bump into monsters) |
+| Mouse click | Auto-walk to the clicked tile (browser version) |
 | E | Inventory |
 | . or Z | Wait a turn |
 | M | Toggle sound |
@@ -57,11 +58,14 @@ Playable two ways:
 
 Walk into the stairs `>` to descend. Walk into the shopkeeper to trade.
 
-**On phones/tablets** the browser version shows an on-screen D-pad
-(hold a direction to keep walking, center dot waits a turn) plus Bag /
-Sound / Fullscreen buttons, and the layout reflows to fit the screen.
-Tap an item to view its stats, double-tap (or use the action button) to
-use, equip, buy or sell it.
+**On phones/tablets** the map itself is the controller: tap any explored
+tile and the hero walks there (auto-walk stops the moment a monster
+appears or you take a hit), tap an adjacent monster/chest/door to bump
+it, tap the hero to wait. Swipe to step once; hold and drag to keep
+walking. Bag and settings buttons float in the corner, and a classic
+on-screen D-pad can be re-enabled in Settings. Tap an item to view its
+stats, double-tap (or use the action button) to use, equip, buy or sell
+it.
 
 ### Architecture
 

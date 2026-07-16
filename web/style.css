@@ -189,6 +189,9 @@ h1.victory { color: var(--warn); }
   border: 1px solid var(--border);
   image-rendering: pixelated;
   display: block;
+  touch-action: none; /* the canvas is a gesture surface: tap-to-walk, swipe-to-step */
+  user-select: none;
+  -webkit-user-select: none;
 }
 #canvas-wrap.shake { animation: shake 0.28s linear; }
 @keyframes shake {
@@ -372,8 +375,10 @@ h1.victory { color: var(--warn); }
   display: flex;
   flex-direction: column;
   gap: 8px;
+  margin-left: auto; /* stay right-aligned when the D-pad is hidden */
   pointer-events: auto;
 }
+body.dpad-off #touch-actions { flex-direction: row; }
 .touch-btn {
   min-width: 0; margin: 0;
   width: 62px; height: 46px;
@@ -442,6 +447,7 @@ h1.victory { color: var(--warn); }
     font-size: 0.75em;
     margin-bottom: 150px; /* keep the log clear of the fixed D-pad */
   }
+  body.dpad-off #log { margin-bottom: 64px; } /* only Bag/gear to clear */
   #footer { display: none; }
 
   .overlay-box {

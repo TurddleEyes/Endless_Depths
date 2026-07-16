@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Endless Depths</title>
-<link rel="stylesheet" href="web/style.css?v=3">
+<link rel="stylesheet" href="web/style.css?v=4">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128481;</text></svg>">
 </head>
 <body>
@@ -90,7 +90,7 @@
       </div>
     </div>
     <div id="log"></div>
-    <div id="footer">Move: arrows/WASD &nbsp;|&nbsp; E: inventory &nbsp;|&nbsp; .: wait &nbsp;|&nbsp; M: sound &nbsp;|&nbsp; F: fullscreen &nbsp;|&nbsp; walk into stairs to descend</div>
+    <div id="footer">Move: arrows/WASD, or click a tile to walk there &nbsp;|&nbsp; E: inventory &nbsp;|&nbsp; .: wait &nbsp;|&nbsp; M: sound &nbsp;|&nbsp; F: fullscreen &nbsp;|&nbsp; walk into stairs to descend</div>
 
     <!-- Touch controls (enabled on touch devices) -->
     <div id="touch-controls">
@@ -103,8 +103,7 @@
       </div>
       <div id="touch-actions">
         <button class="touch-btn" id="touch-inv">Bag</button>
-        <button class="touch-btn" id="touch-mute">Snd</button>
-        <button class="touch-btn" id="touch-full">Full</button>
+        <button class="touch-btn" id="touch-settings" title="Settings">&#9881;</button>
       </div>
     </div>
   </div>
@@ -171,6 +170,8 @@
       <button id="setting-music" class="setting-btn">Music: On</button>
       <button id="setting-sfx" class="setting-btn">Sound Effects: On</button>
       <button id="setting-shake" class="setting-btn">Screen Shake: On</button>
+      <button id="setting-dpad" class="setting-btn">Touch D-pad: Off</button>
+      <button id="setting-full" class="setting-btn">Toggle Fullscreen</button>
       <div class="overlay-buttons"><button id="settings-close">Close (Esc)</button></div>
     </div>
   </div>
@@ -212,6 +213,6 @@
 
 </div>
 <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
-<script src="web/main.js?v=3"></script>
+<script src="web/main.js?v=4"></script>
 </body>
 </html>

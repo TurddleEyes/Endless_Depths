@@ -38,6 +38,7 @@ const gameSettings = (() => {
     music_on: s.music_on ?? !legacyMuted,
     sfx_on: s.sfx_on ?? !legacyMuted,
     shake_on: s.shake_on ?? true,
+    dpad_on: s.dpad_on ?? false, // tap-to-move is the default; D-pad is the fallback
   };
 })();
 
@@ -54,6 +55,7 @@ let floorData = null;
 let snap = null;
 let mode = "title";
 let cam = { x: 0, y: 0 };
+let lastEventTypes = new Set(); // event types from the most recent snapshot
 
 // Run timing + replay playback state
 let liveRun = true;        // false while watching a replay - gates all persistence
@@ -86,6 +88,21 @@ const mmCtx = minimap.getContext("2d");
 canvas.width = VIEW_COLS * TILE;
 canvas.height = VIEW_ROWS * TILE;
 if (IS_TOUCH) $("touch-controls").classList.add("enabled");
+if (!IS_TOUCH) $("setting-dpad").classList.add("hidden");
+
+// The D-pad is opt-in; with it hidden, small screens get a taller viewport.
+function applyDpadSetting() {
+  const on = IS_TOUCH && gameSettings.dpad_on;
+  $("dpad").classList.toggle("hidden", !on);
+  document.body.classList.toggle("dpad-off", !on);
+  VIEW_ROWS = IS_SMALL ? (on ? 13 : 17) : 16;
+  const h = VIEW_ROWS * TILE;
+  if (canvas.height !== h) {
+    canvas.height = h;
+    if (snap && floorData) render();
+  }
+}
+applyDpadSetting();
 
 /* ---------------------------------------------------------------- boot */
 async function boot() {
@@ -751,6 +768,7 @@ const EVENT_SFX = {
 };
 
 function handleEvents(events) {
+  lastEventTypes = new Set(events.map((ev) => ev.type));
   for (const ev of events) {
     switch (ev.type) {
       case "hit":
@@ -839,6 +857,7 @@ function refreshSettingsLabels() {
   $("setting-music").textContent = `Music: ${gameSettings.music_on ? "On" : "Off"}`;
   $("setting-sfx").textContent = `Sound Effects: ${gameSettings.sfx_on ? "On" : "Off"}`;
   $("setting-shake").textContent = `Screen Shake: ${gameSettings.shake_on ? "On" : "Off"}`;
+  $("setting-dpad").textContent = `Touch D-pad: ${gameSettings.dpad_on ? "On" : "Off"}`;
 }
 
 function openSettings() {
@@ -946,6 +965,15 @@ function render() {
 
   ctx.drawImage(heroSprite(p.hero), (p.x - cam.x) * TILE, (p.y - cam.y) * TILE, TILE, TILE);
 
+  if (autoWalk.target && mode === "play") {
+    const tc = autoWalk.target.x - cam.x, tr = autoWalk.target.y - cam.y;
+    if (tc >= 0 && tr >= 0 && tc < VIEW_COLS && tr < VIEW_ROWS) {
+      ctx.strokeStyle = "#ffe45e";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(tc * TILE + 2, tr * TILE + 2, TILE - 4, TILE - 4);
+    }
+  }
+
   renderPanel();
   renderLog();
   renderMinimap();
@@ -1015,6 +1043,7 @@ function escapeHtml(s) {
 let invSel = 0;
 
 function openInventory() {
+  stopAutoWalk();
   mode = "inventory";
   invSel = 0;
   $("inventory-overlay").classList.remove("hidden");
@@ -1223,8 +1252,11 @@ document.addEventListener("keydown", (e) => {
       break;
     case "play":
       if (e.key === "e" || e.key === "E") openInventory();
-      else if (e.key === "." || e.key === "z" || e.key === "Z") afterAction(bridge.wait_turn());
-      else if (MOVE_KEYS[e.key]) {
+      else if (e.key === "." || e.key === "z" || e.key === "Z") {
+        stopAutoWalk();
+        afterAction(bridge.wait_turn());
+      } else if (MOVE_KEYS[e.key]) {
+        stopAutoWalk();
         const [dx, dy] = MOVE_KEYS[e.key];
         afterAction(bridge.move(dx, dy));
       }
@@ -1258,12 +1290,206 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+/* ------------------------------------------- tap-to-move + auto-walk */
+// The canvas is the primary touch control surface: tap a tile to walk
+// there (BFS over explored tiles, one recorded bridge.move per step, so
+// replays are unaffected), tap an adjacent monster/chest/door to bump it,
+// tap the hero to wait. Swiping steps once; holding a drag keeps walking.
+const DIRS4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+const WALKABLE_TILES = new Set([".", ">", "_"]);
+const BUMPABLE_TILES = new Set(["$", "+", "&", "L", "B"]); // mirror SOLID_TILES
+const AUTO_STEP_MS = 150;
+// Anything that should snap the player out of an auto-walk. poison_tick is
+// deliberately absent: permanent poison would otherwise cancel every other
+// step, and its damage can never be lethal.
+const AUTOWALK_CANCEL = ["player_hit", "trap", "teleport", "poisoned",
+                         "summon", "mimic", "descend", "player_death",
+                         "puzzle_fail"];
+
+const autoWalk = { target: null, timer: null, monsterBaseline: 0 };
+
+function countVisibleMonsters() {
+  let n = 0;
+  for (const m of snap.monsters) {
+    if (snap.visible[m.y][m.x] === "1") n++;
+  }
+  return n;
+}
+
+function stopAutoWalk() {
+  clearTimeout(autoWalk.timer);
+  autoWalk.timer = null;
+  if (autoWalk.target) {
+    autoWalk.target = null;
+    if (snap && floorData && mode === "play") render(); // clear the marker
+  }
+}
+
+// Next step from (sx,sy) toward (tx,ty), or null. Interior tiles must be
+// explored, walkable, free of visible monsters and lit pressure plates;
+// the goal tile itself may be solid or occupied (final step = bump).
+function bfsNextStep(sx, sy, tx, ty) {
+  if (sx === tx && sy === ty) return null;
+  const W = floorData.width, H = floorData.height;
+  const tiles = floorData.tiles;
+  const blocked = new Set();
+  for (const m of snap.monsters) {
+    if (snap.visible[m.y][m.x] === "1") blocked.add(m.x + "," + m.y);
+  }
+  for (const pr of snap.puzzle_props || []) {
+    if (pr.kind === "plate" && pr.on) blocked.add(pr.x + "," + pr.y);
+  }
+  const startK = sx + "," + sy, goalK = tx + "," + ty;
+  const cameFrom = new Map([[startK, null]]);
+  const queue = [[sx, sy]];
+  let qi = 0;
+  while (qi < queue.length) {
+    const [cx, cy] = queue[qi++];
+    if (cx === tx && cy === ty) break;
+    for (const [dx, dy] of DIRS4) {
+      const nx = cx + dx, ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const k = nx + "," + ny;
+      if (cameFrom.has(k)) continue;
+      if (snap.explored[ny][nx] !== "1") continue;
+      if (k !== goalK && (!WALKABLE_TILES.has(tiles[ny][nx]) || blocked.has(k))) continue;
+      cameFrom.set(k, cx + "," + cy);
+      queue.push([nx, ny]);
+    }
+  }
+  if (!cameFrom.has(goalK)) return null;
+  let k = goalK;
+  while (cameFrom.get(k) !== startK) {
+    k = cameFrom.get(k);
+    if (!k) return null;
+  }
+  return k.split(",").map(Number);
+}
+
+function autoWalkStep() {
+  autoWalk.timer = null;
+  if (!snap || mode !== "play" || snap.game_over || !autoWalk.target) {
+    stopAutoWalk();
+    return;
+  }
+  const t = autoWalk.target;
+  const px = snap.player.x, py = snap.player.y;
+  const step = bfsNextStep(px, py, t.x, t.y);
+  if (!step) {
+    stopAutoWalk();
+    return;
+  }
+  afterAction(bridge.move(step[0] - px, step[1] - py));
+  const p = snap.player;
+  const arrived = p.x === t.x && p.y === t.y;
+  const bumped = p.x === px && p.y === py; // attacked/opened/pushed something
+  const visNow = countVisibleMonsters();
+  const danger = visNow > autoWalk.monsterBaseline ||
+                 AUTOWALK_CANCEL.some((e) => lastEventTypes.has(e));
+  autoWalk.monsterBaseline = visNow;
+  if (arrived || bumped || danger || mode !== "play" || snap.game_over) {
+    stopAutoWalk();
+    return;
+  }
+  autoWalk.timer = setTimeout(autoWalkStep, AUTO_STEP_MS);
+}
+
+function startAutoWalk(x, y) {
+  stopAutoWalk();
+  autoWalk.target = { x, y };
+  autoWalk.monsterBaseline = countVisibleMonsters();
+  autoWalkStep();
+}
+
+function tileAtClient(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  if (!floorData || !rect.width || !rect.height) return null;
+  const col = Math.floor((clientX - rect.left) / rect.width * VIEW_COLS);
+  const row = Math.floor((clientY - rect.top) / rect.height * VIEW_ROWS);
+  if (col < 0 || row < 0 || col >= VIEW_COLS || row >= VIEW_ROWS) return null;
+  const x = cam.x + col, y = cam.y + row;
+  if (x >= floorData.width || y >= floorData.height) return null;
+  return { x, y };
+}
+
+function tapAt(clientX, clientY) {
+  const t = tileAtClient(clientX, clientY);
+  const prev = autoWalk.target;
+  stopAutoWalk();
+  if (!t || !snap || mode !== "play") return;
+  if (t.x === snap.player.x && t.y === snap.player.y) {
+    afterAction(bridge.wait_turn());
+    return;
+  }
+  if (prev && prev.x === t.x && prev.y === t.y) return; // tap target = cancel
+  if (snap.explored[t.y][t.x] !== "1") return;
+  const tile = floorData.tiles[t.y][t.x];
+  const monsterThere = snap.monsters.some(
+    (m) => m.x === t.x && m.y === t.y && snap.visible[m.y][m.x] === "1");
+  if (!WALKABLE_TILES.has(tile) && !BUMPABLE_TILES.has(tile) && !monsterThere) return;
+  startAutoWalk(t.x, t.y);
+}
+
+/* Canvas gestures: tap = walk/bump/wait, swipe = one step, held drag =
+ * keep stepping in the drag direction (a floating 4-way joystick). */
+const SWIPE_PX = 24;
+const DRAG_REPEAT_MS = 170;
+let gesture = null;
+
+function quantizeDir(dx, dy) {
+  return Math.abs(dx) > Math.abs(dy) ? [Math.sign(dx), 0] : [0, Math.sign(dy)];
+}
+
+function dragStep() {
+  if (!gesture || !gesture.dir || !bridge || mode !== "play") return;
+  const [dx, dy] = gesture.dir;
+  if (!dx && !dy) return; // finger back at the origin: no direction, no turn
+  afterAction(bridge.move(dx, dy));
+}
+
+canvas.addEventListener("pointerdown", (e) => {
+  if (!bridge || mode !== "play" || !snap || gesture) return;
+  e.preventDefault();
+  try { canvas.setPointerCapture(e.pointerId); } catch {}
+  gesture = { id: e.pointerId, x0: e.clientX, y0: e.clientY,
+              dragging: false, dir: null, timer: null };
+});
+
+canvas.addEventListener("pointermove", (e) => {
+  if (!gesture || e.pointerId !== gesture.id) return;
+  const dx = e.clientX - gesture.x0, dy = e.clientY - gesture.y0;
+  if (gesture.dragging) {
+    gesture.dir = quantizeDir(dx, dy);
+  } else if (Math.hypot(dx, dy) >= SWIPE_PX) {
+    gesture.dragging = true;
+    stopAutoWalk();
+    gesture.dir = quantizeDir(dx, dy);
+    dragStep();
+    gesture.timer = setInterval(dragStep, DRAG_REPEAT_MS);
+  }
+});
+
+function endGesture(e) {
+  if (!gesture || e.pointerId !== gesture.id) return null;
+  clearInterval(gesture.timer);
+  const g = gesture;
+  gesture = null;
+  return g;
+}
+
+canvas.addEventListener("pointerup", (e) => {
+  const g = endGesture(e);
+  if (g && !g.dragging) tapAt(g.x0, g.y0);
+});
+canvas.addEventListener("pointercancel", endGesture);
+
 /* ------------------------------------------------------ touch controls */
 const TOUCH_DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 let holdTimer = null;
 
 function touchAct(dir) {
   if (!bridge || mode !== "play") return;
+  stopAutoWalk();
   if (dir === "wait") afterAction(bridge.wait_turn());
   else afterAction(bridge.move(...TOUCH_DIRS[dir]));
 }
@@ -1272,6 +1498,8 @@ for (const btn of document.querySelectorAll(".dpad-btn")) {
   const dir = btn.dataset.dir;
   const start = (e) => {
     e.preventDefault();
+    // Capture so a thumb drifting off the button doesn't stop the walk.
+    try { btn.setPointerCapture(e.pointerId); } catch {}
     touchAct(dir);
     clearInterval(holdTimer);
     holdTimer = setInterval(() => touchAct(dir), 170); // hold to keep walking
@@ -1287,11 +1515,9 @@ $("touch-inv").addEventListener("click", () => {
   if (mode === "play") openInventory();
   else if (mode === "inventory") closeInventory();
 });
-$("touch-mute").addEventListener("click", () => {
-  audio.setMuted(!audio.muted);
-  if (mode === "play" || mode === "shop" || mode === "inventory") updateMusic();
+$("touch-settings").addEventListener("click", () => {
+  if (mode === "play") openSettings();
 });
-$("touch-full").addEventListener("click", toggleFullscreen);
 
 /* --------------------------------------------------------- UI buttons */
 $("btn-new").addEventListener("click", startNewGame);
@@ -1340,6 +1566,11 @@ $("puzzle-close").addEventListener("click", closePuzzle);
 $("setting-music").addEventListener("click", () => toggleSetting("music_on"));
 $("setting-sfx").addEventListener("click", () => toggleSetting("sfx_on"));
 $("setting-shake").addEventListener("click", () => toggleSetting("shake_on"));
+$("setting-dpad").addEventListener("click", () => {
+  toggleSetting("dpad_on");
+  applyDpadSetting();
+});
+$("setting-full").addEventListener("click", toggleFullscreen);
 $("inv-action").addEventListener("click", inventoryActivate);
 $("inv-drop").addEventListener("click", inventoryDrop);
 $("inv-close").addEventListener("click", closeInventory);
