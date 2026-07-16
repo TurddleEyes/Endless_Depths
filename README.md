@@ -75,3 +75,4 @@ web/        browser front-end: webbridge.py (JSON API run in Pyodide),
             main.js (canvas renderer), style.css
 index.html  entry point for the browser version
 game.py     entry point for the desktop version
+```
