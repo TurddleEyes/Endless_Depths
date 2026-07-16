@@ -40,28 +40,6 @@ Playable two ways:
 
 ## Play in the browser
 
-Once this repo is on GitHub with Pages enabled (see below), the game runs at:
-
-```
-https://<your-username>.github.io/<repo-name>/
-```
-
-To try it locally without GitHub:
-
-```
-python3 -m http.server 8000
-# then open http://localhost:8000
-```
-
-(A server is required — opening index.html directly with file:// won't work
-because the page fetches the Python engine files.)
-
-## Play on the desktop
-
-Requires Python 3.10+ with tkinter (Debian/Ubuntu/Zorin: `sudo apt install python3-tk`).
-
-```
-python3 game.py
 ```
 
 ### Controls
@@ -85,30 +63,6 @@ Sound / Fullscreen buttons, and the layout reflows to fit the screen.
 Tap an item to view its stats, double-tap (or use the action button) to
 use, equip, buy or sell it.
 
-## Publishing to GitHub Pages
-
-1. Create a new repository on <https://github.com/new> (e.g. `endless-depths`).
-   Don't initialize it with a README.
-2. Push this folder:
-
-   ```
-   git remote add origin https://github.com/<your-username>/<repo-name>.git
-   git push -u origin main
-   ```
-
-3. On GitHub: **Settings → Pages → Build and deployment** — set *Source* to
-   **Deploy from a branch**, choose branch **main** and folder **/ (root)**,
-   then save.
-4. After a minute, the game is live at
-   `https://<your-username>.github.io/<repo-name>/`.
-
-## Development
-
-```
-python3 scripts/smoke_test.py       # headless engine tests (no tkinter needed)
-python3 scripts/web_smoke_test.py   # tests the browser JSON bridge
-```
-
 ### Architecture
 
 ```
@@ -119,10 +73,3 @@ web/        browser front-end: webbridge.py (JSON API run in Pyodide),
             main.js (canvas renderer), style.css
 index.html  entry point for the browser version
 game.py     entry point for the desktop version
-scripts/    test suites
-```
-
-The engine communicates with both front-ends the same way: they call its
-public methods and drain a structured event stream (`take_events()`) to
-drive sounds and animations. Saves live in `save.json` on desktop and in
-`localStorage` in the browser.
