@@ -7,6 +7,7 @@ missing sprite. Run with:
     python3 scripts/ui_drive_test.py
 """
 import os
+import random
 import sys
 import tempfile
 
@@ -32,13 +33,18 @@ from engine import constants as C  # noqa: E402
 from engine import puzzles as puzzle_module  # noqa: E402
 from engine.dungeon import GroundItem  # noqa: E402
 from engine.entities import make_mimic  # noqa: E402
-from engine.items import make_key  # noqa: E402
+from engine.items import generate_item, make_key  # noqa: E402
 from ui.app import App  # noqa: E402
 
 
 class FakeEvent:
     def __init__(self, keysym):
         self.keysym = keysym
+
+
+class FakeClick:
+    def __init__(self, y):
+        self.y = y
 
 
 def key(app, keysym):
@@ -111,6 +117,25 @@ app.setting_music_btn.invoke()
 key(app, "Escape")
 assert app.mode == "play"
 print("OK: movement keys, inventory (E), and settings (O) all work")
+
+# ----------------------------------------------------------------------
+# Item-list category headers: set_items always opens with a header row
+# (see ItemListPanel - a fresh sentinel guarantees row 0 is never a real
+# item), so clicking row 0 must redirect the selection to a real item
+# rather than leaving the panel with nothing selected.
+# ----------------------------------------------------------------------
+rng = random.Random(1)
+app.state.player.inventory = [generate_item(1, rng) for _ in range(6)]
+key(app, "e")
+assert app.mode == "inventory"
+app._refresh_inventory()
+assert app.inv_panel.entries, "expected items in the seeded inventory"
+app.inv_panel._on_click(FakeClick(0))
+assert app.inv_panel.selected_item() is not None, \
+    "clicking a category header must redirect to the nearest real item"
+key(app, "Escape")
+assert app.mode == "play"
+print("OK: item-list category headers redirect clicks to a real item")
 
 # ----------------------------------------------------------------------
 # The sealed-door puzzle popup

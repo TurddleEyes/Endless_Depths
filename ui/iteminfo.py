@@ -6,6 +6,54 @@ from engine.shop import SELL_RATIO
 
 RARITY_COLORS = {name: color for name, _mult, _weight, color in C.RARITIES}
 
+# Category grouping/ordering shared by both front-ends' item menus.
+CATEGORY_ORDER = ["weapon", "armor", "accessory", "potion", "scroll", "key", "gold"]
+CATEGORY_LABELS = {
+    "weapon": "Weapons",
+    "armor": "Armor",
+    "accessory": "Accessories",
+    "potion": "Potions",
+    "scroll": "Scrolls",
+    "key": "Keys",
+    "gold": "Gold",
+}
+
+
+def category_label(category: str) -> str:
+    return CATEGORY_LABELS.get(category, category.title())
+
+
+def _category_rank(category: str) -> int:
+    try:
+        return CATEGORY_ORDER.index(category)
+    except ValueError:
+        return len(CATEGORY_ORDER)
+
+
+def _item_power(item) -> float:
+    """A single 'how good is this' number, used only to order items within
+    their own category - never compared across categories."""
+    if item.category == "weapon":
+        return item.bonus_attack
+    if item.category == "armor":
+        return item.bonus_defense
+    if item.category == "accessory":
+        return item.bonus_attack + item.bonus_defense
+    if item.category in ("potion", "scroll"):
+        # magnitude is 0 for effects like cure/teleport that don't scale -
+        # value (which still reflects rarity) is the fallback tiebreaker.
+        return item.magnitude if item.magnitude else item.value
+    if item.category == "gold":
+        return item.quantity
+    return item.value
+
+
+def sort_items(items: list) -> list:
+    """Group items by category (Weapons, Armor, ... Gold) and order each
+    group best-to-worst. Both front-ends' inventory/shop menus use this so
+    the item lists stay stable and comparable at a glance."""
+    return sorted(items, key=lambda it: (_category_rank(it.category), -_item_power(it), it.name))
+
 
 def sell_price(item) -> int:
     return max(1, round(item.value * SELL_RATIO))

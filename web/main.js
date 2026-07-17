@@ -56,6 +56,7 @@ let snap = null;
 let mode = "title";
 let cam = { x: 0, y: 0 };
 let lastEventTypes = new Set(); // event types from the most recent snapshot
+let categoryLabels = {}; // category -> display label, fetched once at boot
 
 // Run timing + replay playback state
 let liveRun = true;        // false while watching a replay - gates all persistence
@@ -128,6 +129,7 @@ async function boot() {
   status.textContent = "Building sprites…";
   buildAtlas(JSON.parse(bridge.sprite_atlas_json()));
   drawTitleHero();
+  categoryLabels = JSON.parse(bridge.category_labels_json());
 
   status.textContent = "";
   $("title-buttons").classList.remove("hidden");
@@ -1154,6 +1156,10 @@ function shopActivate() {
 }
 
 /* ------------------------------------------------ shared list helpers */
+// Items arrive from webbridge.py already grouped by category and sorted
+// best-to-worst within each group (ui/iteminfo.py:sort_items) - this just
+// draws a header whenever the category changes and keeps click handlers
+// wired to the item's real index in `items` despite the extra header rows.
 function renderItemList(ul, items, sel, onSelect, onActivate, labelFn, colorFn) {
   ul.innerHTML = "";
   if (!items.length) {
@@ -1163,7 +1169,16 @@ function renderItemList(ul, items, sel, onSelect, onActivate, labelFn, colorFn) 
     ul.appendChild(li);
     return;
   }
+  let lastCategory = null;
+  const itemLis = [];
   items.forEach((entry, i) => {
+    if (entry.category !== lastCategory) {
+      lastCategory = entry.category;
+      const header = document.createElement("li");
+      header.className = "cat-header";
+      header.textContent = categoryLabels[entry.category] || entry.category;
+      ul.appendChild(header);
+    }
     const li = document.createElement("li");
     li.textContent = labelFn ? labelFn(entry) : entry.label;
     li.style.color = colorFn ? colorFn(entry) : entry.color;
@@ -1171,8 +1186,9 @@ function renderItemList(ul, items, sel, onSelect, onActivate, labelFn, colorFn) 
     li.addEventListener("click", () => onSelect(i));
     li.addEventListener("dblclick", () => { onSelect(i); onActivate(); });
     ul.appendChild(li);
+    itemLis[i] = li;
   });
-  const selected = ul.children[sel];
+  const selected = itemLis[sel];
   if (selected) selected.scrollIntoView({ block: "nearest" });
 }
 
@@ -1518,6 +1534,144 @@ $("touch-inv").addEventListener("click", () => {
 $("touch-settings").addEventListener("click", () => {
   if (mode === "play") openSettings();
 });
+
+/* ------------------------------------------------------------ gamepad */
+// Standard Gamepad API mapping (https://www.w3.org/TR/gamepad/#remapping) -
+// works for any paired controller (Bluetooth/USB) on both desktop and
+// mobile browsers, no extra permissions or setup. Polled on a timer since
+// the browser only fires connect/disconnect events, never per-input
+// changes. Directions repeat like the touch D-pad/drag (170ms cadence);
+// face buttons are edge-triggered, firing once per press.
+const GAMEPAD_POLL_MS = 60;
+const GAMEPAD_DEADZONE = 0.5;
+const GAMEPAD_REPEAT_MS = 170;
+const GAMEPAD_BTN = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, START: 9,
+                      DPAD_UP: 12, DPAD_DOWN: 13, DPAD_LEFT: 14, DPAD_RIGHT: 15 };
+const GAMEPAD_EDGE_BUTTONS = ["A", "B", "X", "Y", "LB", "RB", "START"];
+
+let gamepadIndex = null;
+let gamepadPrevButtons = [];
+let gamepadDirTimer = null;
+let gamepadLastDirKey = null;
+
+window.addEventListener("gamepadconnected", (e) => {
+  gamepadIndex = e.gamepad.index;
+  gamepadPrevButtons = [];
+  const badge = $("gamepad-badge");
+  badge.textContent = `\u{1F3AE} ${e.gamepad.id.slice(0, 40)} connected`;
+  badge.classList.add("show");
+  clearTimeout(badge._hideTimer);
+  badge._hideTimer = setTimeout(() => badge.classList.remove("show"), 2500);
+});
+window.addEventListener("gamepaddisconnected", (e) => {
+  if (e.gamepad.index !== gamepadIndex) return;
+  gamepadIndex = null;
+  clearInterval(gamepadDirTimer);
+  gamepadDirTimer = null;
+  gamepadLastDirKey = null;
+});
+
+function gamepadDirection(gp) {
+  if (gp.buttons[GAMEPAD_BTN.DPAD_UP]?.pressed) return [0, -1];
+  if (gp.buttons[GAMEPAD_BTN.DPAD_DOWN]?.pressed) return [0, 1];
+  if (gp.buttons[GAMEPAD_BTN.DPAD_LEFT]?.pressed) return [-1, 0];
+  if (gp.buttons[GAMEPAD_BTN.DPAD_RIGHT]?.pressed) return [1, 0];
+  const ax = gp.axes[0] || 0, ay = gp.axes[1] || 0;
+  if (Math.abs(ax) > GAMEPAD_DEADZONE || Math.abs(ay) > GAMEPAD_DEADZONE) {
+    return quantizeDir(ax, ay); // shared with the touch swipe/drag gesture
+  }
+  return null;
+}
+
+// Whether a direction should auto-repeat while held, or fire once per
+// press. Movement and list-scrolling feel right repeating (like OS key
+// repeat); one-shot toggles (shop tab, lore page) would just flicker.
+function gamepadDirRepeats(dir) {
+  if (mode === "play") return true;
+  if ((mode === "inventory" || mode === "shop") && dir[1] !== 0) return true;
+  return false;
+}
+
+function gamepadDirAct(dir) {
+  if (!bridge || !dir) return;
+  if (mode === "play") {
+    stopAutoWalk();
+    afterAction(bridge.move(dir[0], dir[1]));
+  } else if (mode === "inventory") {
+    if (dir[1] < 0) { invSel--; renderInventory(); }
+    else if (dir[1] > 0) { invSel++; renderInventory(); }
+  } else if (mode === "shop") {
+    if (dir[1] < 0) { shopSel--; renderShop(); }
+    else if (dir[1] > 0) { shopSel++; renderShop(); }
+    else if (dir[0] !== 0) shopSetTab(shopTab === "buy" ? "sell" : "buy");
+  } else if (mode === "lore") {
+    if (dir[0] > 0) loreStep(1);
+    else if (dir[0] < 0) loreStep(-1);
+  }
+}
+
+function gamepadButtonPress(name) {
+  switch (name) {
+    case "A":
+      if (mode === "play") afterAction(bridge.wait_turn());
+      else if (mode === "inventory") inventoryActivate();
+      else if (mode === "shop") shopActivate();
+      else if (mode === "title") startNewGame();
+      else if (mode === "victory" || mode === "gameover") toTitle();
+      else if (mode === "lore") loreStep(1);
+      break;
+    case "B":
+      if (mode === "inventory") closeInventory();
+      else if (mode === "shop") closeShopOverlay();
+      else if (mode === "puzzle") closePuzzle();
+      else if (mode === "settings") closeSettings();
+      else if (mode === "replay-picker") toTitle();
+      else if (mode === "replay") stopReplay();
+      else if (mode === "lore") finishLore();
+      break;
+    case "X":
+      if (mode === "inventory") inventoryDrop();
+      break;
+    case "Y":
+      if (mode === "play") openInventory();
+      break;
+    case "LB": case "RB":
+      if (mode === "shop") shopSetTab(shopTab === "buy" ? "sell" : "buy");
+      break;
+    case "START":
+      if (mode === "play") openSettings();
+      break;
+  }
+}
+
+function pollGamepad() {
+  if (gamepadIndex !== null && bridge) {
+    const gp = navigator.getGamepads()[gamepadIndex];
+    if (gp) {
+      for (const name of GAMEPAD_EDGE_BUTTONS) {
+        const idx = GAMEPAD_BTN[name];
+        const pressed = gp.buttons[idx]?.pressed || false;
+        if (pressed && !gamepadPrevButtons[idx]) gamepadButtonPress(name);
+        gamepadPrevButtons[idx] = pressed;
+      }
+      const dir = gamepadDirection(gp);
+      const dirKey = dir ? dir.join(",") : null;
+      if (dirKey !== gamepadLastDirKey) {
+        clearInterval(gamepadDirTimer);
+        gamepadDirTimer = null;
+        gamepadLastDirKey = dirKey;
+        if (dir) {
+          gamepadDirAct(dir);
+          if (gamepadDirRepeats(dir)) {
+            gamepadDirTimer = setInterval(() => gamepadDirAct(dir), GAMEPAD_REPEAT_MS);
+          }
+        }
+      }
+    }
+  }
+  setTimeout(pollGamepad, GAMEPAD_POLL_MS);
+}
+pollGamepad();
 
 /* --------------------------------------------------------- UI buttons */
 $("btn-new").addEventListener("click", startNewGame);

@@ -20,6 +20,11 @@ TEXT_GOOD = "#5fe07f"
 TEXT_WARN = "#e0c85f"
 TEXT_BAD = "#e05f5f"
 ACCENT = "#66d9ef"
+# A softer selection highlight for scrollable lists - the full-saturation
+# ACCENT block with near-black text reads harsh over long browsing sessions;
+# this keeps the same hue but as a muted fill with normal readable text.
+SELECT_BG = "#1f3844"
+SELECT_FG = TEXT_MAIN
 
 HP_BAR_BG = "#3a2020"
 HP_BAR_FG = "#e05656"

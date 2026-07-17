@@ -14,7 +14,7 @@ from engine.world import GameState
 from engine import puzzles as puzzle_module
 from engine import replay as replay_module
 from ui import spritedata as S
-from ui.iteminfo import RARITY_COLORS, describe_item, sell_price
+from ui.iteminfo import CATEGORY_LABELS, RARITY_COLORS, describe_item, sell_price, sort_items
 from ui import audio as audio_synth
 from ui import lore as lore_data
 
@@ -51,6 +51,10 @@ def hero_sprite_json(weapon, armor, accessory, poisoned, rarity) -> str:
 def lore_json() -> str:
     return json.dumps({"title": lore_data.TITLE, "pages": lore_data.PAGES,
                         "taglines": lore_data.TAGLINES})
+
+
+def category_labels_json() -> str:
+    return json.dumps(CATEGORY_LABELS)
 
 
 def sfx_names_json() -> str:
@@ -384,7 +388,7 @@ def snapshot_json() -> str:
         ],
         "log": STATE.log[-12:],
         "events": STATE.take_events(),
-        "inventory": [_item_entry(i, p) for i in p.inventory],
-        "shop_stock": [_item_entry(i, p, price=i.value) for i in floor.shop_stock],
+        "inventory": [_item_entry(i, p) for i in sort_items(p.inventory)],
+        "shop_stock": [_item_entry(i, p, price=i.value) for i in sort_items(floor.shop_stock)],
     }
     return json.dumps(snap)

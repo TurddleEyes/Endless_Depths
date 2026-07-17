@@ -22,7 +22,7 @@ from engine.replay import (ReplayPlayer, build_replay_dict, replay_from_text,
 from . import theme as T
 from . import sprites as sprite_defs
 from .audio import AudioManager, track_for_depth
-from .iteminfo import RARITY_COLORS, describe_item, sell_price
+from .iteminfo import RARITY_COLORS, describe_item, sell_price, sort_items
 from .widgets import ItemListPanel
 from . import lore as lore_data
 
@@ -317,7 +317,7 @@ class App(tk.Tk):
             btn = tk.Button(
                 self.puzzle_buttons_frame, text=spec["label"],
                 font=T.UI_FONT_BOLD, width=width,
-                bg=T.ACCENT if lit else T.BG, fg=T.BG if lit else T.TEXT_MAIN,
+                bg=T.SELECT_BG if lit else T.BG, fg=T.SELECT_FG if lit else T.TEXT_MAIN,
                 state="disabled" if spec["state"] == "disabled" else "normal",
                 relief="flat", activebackground=T.ACCENT, activeforeground=T.BG,
                 command=lambda i=i: self._puzzle_press(i))
@@ -1400,10 +1400,11 @@ class App(tk.Tk):
 
     def _refresh_inventory(self):
         p = self.state.player
-        self._inventory_items = list(p.inventory)
+        self._inventory_items = sort_items(p.inventory)
         labels = [f"{item.display_name()}{self._equip_tag(item)}"
                   for item in self._inventory_items]
-        self.inv_panel.set_items(self._inventory_items, labels)
+        categories = [item.category for item in self._inventory_items]
+        self.inv_panel.set_items(self._inventory_items, labels, categories=categories)
         self.inventory_gold_label.configure(text=f"Gold: {p.gold}")
 
         def slot(eq, stat):
@@ -1489,7 +1490,7 @@ class App(tk.Tk):
 
     def _shop_set_tab(self, tab: str):
         self._shop_tab = tab
-        active = dict(bg=T.ACCENT, fg=T.BG)
+        active = dict(bg=T.SELECT_BG, fg=T.TEXT_MAIN)
         idle = dict(bg=T.BG, fg=T.TEXT_DIM)
         self.shop_buy_tab.configure(**(active if tab == "buy" else idle))
         self.shop_sell_tab.configure(**(active if tab == "sell" else idle))
@@ -1500,15 +1501,17 @@ class App(tk.Tk):
         p = self.state.player
         self.shop_gold_label.configure(text=f"Gold: {p.gold}")
         if self._shop_tab == "buy":
-            items = list(self.state.floor.shop_stock)
+            items = sort_items(self.state.floor.shop_stock)
             labels = [f"{i.display_name()} - {i.value}g" for i in items]
             colors = [(T.TEXT_BAD if p.gold < i.value
                         else RARITY_COLORS.get(i.rarity, T.TEXT_MAIN)) for i in items]
         else:
-            items = list(p.inventory)
+            items = sort_items(p.inventory)
             labels = [f"{i.display_name()}{self._equip_tag(i)} - {sell_price(i)}g" for i in items]
             colors = None
-        self.shop_panel.set_items(items, labels, colors, keep_selection=keep_selection)
+        categories = [i.category for i in items]
+        self.shop_panel.set_items(items, labels, colors, categories=categories,
+                                    keep_selection=keep_selection)
 
     def _shop_activate(self):
         item = self.shop_panel.selected_item()

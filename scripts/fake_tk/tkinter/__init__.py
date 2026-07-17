@@ -196,6 +196,13 @@ class Listbox(Widget):
     def see(self, index):
         pass
 
+    def nearest(self, y):
+        # Real Tkinter maps a pixel y to the nearest row; this stub has no
+        # geometry, so callers pass a row index directly as "y".
+        if not self.items:
+            return 0
+        return max(0, min(int(y), len(self.items) - 1))
+
 
 class Canvas(Widget):
     """Records draw calls; create_image validates a real PhotoImage."""
