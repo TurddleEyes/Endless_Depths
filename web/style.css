@@ -42,18 +42,195 @@ h1 { font-size: 2.4em; color: var(--accent); letter-spacing: 4px; }
 h1.died { color: var(--bad); }
 .subtitle { color: var(--dim); margin: 6px 0 18px; }
 
+/* ---- title screen: the mouth of the Well ---- */
+#title-screen {
+  position: relative;
+  overflow: hidden;
+  display: block;
+  min-height: 700px;
+  padding: 0;
+  background:
+    radial-gradient(ellipse 70% 40% at 18% 82%, rgba(160, 90, 220, 0.10), transparent 60%),
+    url("title_bg.png") center 0 / cover no-repeat,
+    #0a0a0e;
+  image-rendering: pixelated;
+  border: 1px solid #23232b;
+}
+#title-screen > * { position: relative; z-index: 1; }
+#title-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 34px 20px 30px;
+}
+
+/* Dust drifting down the shaft. */
+.well-motes { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.well-motes i {
+  position: absolute;
+  top: -3%;
+  width: 3px; height: 3px;
+  background: rgba(143, 217, 239, 0.4);
+  animation: mote-fall 11s linear infinite;
+}
+.well-motes i:nth-child(2n) { background: rgba(160, 160, 175, 0.3); width: 2px; height: 2px; }
+.well-motes i:nth-child(1)  { left: 8%;  animation-duration: 13s; }
+.well-motes i:nth-child(2)  { left: 21%; animation-duration: 17s; animation-delay: -6s; }
+.well-motes i:nth-child(3)  { left: 33%; animation-duration: 10s; animation-delay: -3s; }
+.well-motes i:nth-child(4)  { left: 42%; animation-duration: 19s; animation-delay: -11s; }
+.well-motes i:nth-child(5)  { left: 55%; animation-duration: 12s; animation-delay: -8s; }
+.well-motes i:nth-child(6)  { left: 63%; animation-duration: 16s; animation-delay: -2s; }
+.well-motes i:nth-child(7)  { left: 72%; animation-duration: 11s; animation-delay: -9s; }
+.well-motes i:nth-child(8)  { left: 81%; animation-duration: 18s; animation-delay: -5s; }
+.well-motes i:nth-child(9)  { left: 90%; animation-duration: 14s; animation-delay: -12s; }
+.well-motes i:nth-child(10) { left: 48%; animation-duration: 21s; animation-delay: -15s; width: 4px; height: 4px; }
+@keyframes mote-fall {
+  from { transform: translateY(0); opacity: 0; }
+  8%   { opacity: 1; }
+  85%  { opacity: 0.7; }
+  to   { transform: translateY(78vh); opacity: 0; }
+}
+
+/* The wordmark is a rendered pixel-art PNG (scripts/build_title_scene.py);
+ * the heading text stays in the DOM for accessibility, visually hidden. */
+#game-title {
+  width: min(555px, 92vw);
+  aspect-ratio: 555 / 60;
+  margin: 0 0 6px;
+  background: url("title_logo.png") center / contain no-repeat;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 18px rgba(102, 217, 239, 0.35));
+  color: transparent;
+  overflow: hidden;
+  text-indent: -9999px;
+}
+#title-tagline {
+  font-style: italic;
+  letter-spacing: 1px;
+  margin-bottom: 14px;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+}
+
 #title-hero {
   image-rendering: pixelated;
-  margin-bottom: 4px;
-  animation: bob 2.4s ease-in-out infinite;
+  position: absolute;
+  left: 4%;
+  bottom: 4%;
+  width: 15%;
+  height: auto;
+  z-index: 1;
+  animation: bob 2.6s ease-in-out infinite;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.55));
 }
 @keyframes bob {
   0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-7px); }
+  50% { transform: translateY(-4px); }
+}
+@media (max-width: 760px) { #title-hero { display: none; } }
+
+/* The menu proper. */
+#title-buttons { display: flex; flex-direction: column; width: min(360px, 92vw); }
+.menu-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  margin: 4px 0;
+  padding: 9px 14px;
+  position: relative;
+  text-align: left;
+  background: rgba(16, 16, 22, 0.82);
+  border: 1px solid #35353f;
+  border-radius: 3px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.menu-btn::before {
+  content: "";
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  /* Native 32px icon cells - no scaling, so pixel art stays crisp. */
+  background: url("title_icons.png") 0 0 / 192px 32px no-repeat;
+  image-rendering: pixelated;
+  opacity: 0.82;
+}
+.menu-btn[data-icon="sword"]::before     { background-position: 0     0; }
+.menu-btn[data-icon="hourglass"]::before { background-position: -32px 0; }
+.menu-btn[data-icon="ghost"]::before     { background-position: -64px 0; }
+.menu-btn[data-icon="play"]::before      { background-position: -96px 0; }
+.menu-btn[data-icon="book"]::before      { background-position: -128px 0; }
+.menu-btn[data-icon="gear"]::before      { background-position: -160px 0; }
+.menu-btn span.label { flex: 1; }
+.menu-btn:hover:not(:disabled),
+.menu-btn:focus-visible {
+  background: rgba(30, 45, 52, 0.92);
+  border-color: var(--accent);
+  color: #eaf7fb;
+  outline: none;
+}
+.menu-btn:hover:not(:disabled)::before,
+.menu-btn:focus-visible::before { opacity: 1; }
+.menu-btn.primary {
+  background: rgba(26, 60, 92, 0.55);
+  border-color: #3d84a8;
+  color: #eaf7fb;
+  box-shadow: 0 0 0 1px rgba(102, 217, 239, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.menu-btn.primary::before { opacity: 1; }
+/* Corner brackets on the primary action, echoing an old save-slot frame. */
+.menu-btn.primary::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  pointer-events: none;
+  border-radius: 3px;
+  background:
+    linear-gradient(135deg, var(--warn) 0 6px, transparent 6px) top left / 12px 12px no-repeat,
+    linear-gradient(-135deg, var(--warn) 0 6px, transparent 6px) top right / 12px 12px no-repeat,
+    linear-gradient(45deg, var(--warn) 0 6px, transparent 6px) bottom left / 12px 12px no-repeat,
+    linear-gradient(-45deg, var(--warn) 0 6px, transparent 6px) bottom right / 12px 12px no-repeat;
+  opacity: 0.85;
+}
+.menu-btn:disabled { background: rgba(14, 14, 19, 0.6); border-color: #23232b; }
+.menu-btn:disabled::before { opacity: 0.28; }
+.menu-btn kbd {
+  font-family: inherit;
+  font-size: 0.72em;
+  color: var(--dim);
+  border: 1px solid #33333e;
+  border-radius: 2px;
+  padding: 1px 6px;
+}
+@media (pointer: coarse) { .menu-btn kbd { display: none; } }
+
+/* The things waiting below - framed like specimen cards. */
+#title-monsters { display: flex; gap: 10px; margin: 4px 0 18px; }
+#title-monsters canvas {
+  image-rendering: pixelated;
+  display: block;
+  padding: 8px;
+  background: rgba(10, 10, 14, 0.7);
+  border: 1px solid #35353f;
+  border-radius: 3px;
+  opacity: 0.9;
+  animation: lurk 3.6s ease-in-out infinite;
+}
+#title-monsters canvas:nth-child(2n) { animation-delay: -1.2s; }
+#title-monsters canvas:nth-child(3n) { animation-delay: -2.4s; }
+@keyframes lurk {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+@media (max-width: 760px) {
+  #title-monsters { gap: 6px; flex-wrap: wrap; justify-content: center; }
 }
 
-#title-monsters { display: flex; gap: 14px; margin-bottom: 14px; }
-#title-monsters canvas { image-rendering: pixelated; opacity: 0.85; }
+@media (prefers-reduced-motion: reduce) {
+  .well-motes i, #title-hero, #title-monsters canvas { animation: none; }
+  .well-motes { display: none; }
+}
 
 .settings-box { width: 340px; text-align: center; }
 .setting-btn { display: block; width: 260px; margin: 6px auto; }
@@ -110,6 +287,11 @@ h1.died { color: var(--bad); }
 .puzzle-feedback { color: var(--warn); min-height: 1.4em; margin: 6px 0 2px; }
 
 #loading-status { color: var(--warn); min-height: 1.4em; margin-bottom: 14px; }
+#title-screen #loading-status:not(:empty) { animation: status-pulse 1.6s ease-in-out infinite; }
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
 
 button {
   font-family: inherit;
@@ -128,7 +310,12 @@ button:disabled { color: var(--dim); cursor: default; }
 
 h1.victory { color: var(--warn); }
 
-#seed-row { margin-bottom: 8px; color: var(--dim); }
+#seed-row {
+  margin-bottom: 10px;
+  color: var(--dim);
+  font-style: italic;
+  letter-spacing: 0.5px;
+}
 #seed-input, #replay-code-input {
   font-family: inherit;
   background: var(--panel);
@@ -142,9 +329,20 @@ h1.victory { color: var(--warn); }
 
 #title-scores-row {
   display: flex;
-  gap: 28px;
+  gap: 16px;
   justify-content: center;
   flex-wrap: wrap;
+}
+#title-highscores, #title-speedrun-scores {
+  background: rgba(18, 18, 24, 0.7);
+  border: 1px solid #26262f;
+  border-radius: 2px;
+  padding: 10px 16px;
+  min-width: 260px;
+  margin-top: 14px;
+  color: var(--dim);
+  text-align: left;
+  line-height: 1.5;
 }
 
 .error-text { color: var(--bad); min-height: 1.3em; margin: 6px 0; }
@@ -197,7 +395,7 @@ h1.victory { color: var(--warn); }
   margin: 10px 0 6px;
 }
 
-#title-highscores, #gameover-highscores, #gameover-stats {
+#gameover-highscores, #gameover-stats {
   color: var(--dim);
   margin-top: 22px;
   text-align: left;
@@ -266,15 +464,26 @@ h1.victory { color: var(--warn); }
   border: 1px solid var(--border);
 }
 .bar.thin { height: 10px; background: #20303a; margin-bottom: 8px; }
+.bar.boss { height: 14px; background: #2a1414; margin-bottom: 2px; }
 .bar-fill { height: 100%; width: 100%; transition: width 0.15s; }
 .bar-fill.hp { background: #e05656; }
 .bar-fill.xp { background: #66d9ef; }
+.bar-fill.boss { background: #ff3b3b; }
 .bar span {
   position: absolute; inset: 0;
   text-align: center;
   font-size: 11px;
   font-weight: bold;
   line-height: 17px;
+}
+.bar.boss span { font-size: 10px; line-height: 13px; }
+
+#boss-nameplate { margin: 8px 0 6px; }
+#boss-name {
+  font-weight: bold;
+  font-size: 0.9em;
+  color: #ff6b6b;
+  margin-bottom: 3px;
 }
 
 .minimap-label { margin-top: 6px; font-weight: bold; }

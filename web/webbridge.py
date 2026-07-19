@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 
+from engine import bosses as boss_module
 from engine import constants as C
 from engine.world import GameState
 from engine import puzzles as puzzle_module
@@ -42,9 +43,10 @@ def sprite_atlas_json() -> str:
     return json.dumps(atlas)
 
 
-def hero_sprite_json(weapon, armor, accessory, poisoned, rarity) -> str:
+def hero_sprite_json(weapon, armor, accessory, poisoned, rarity,
+                     facing="down") -> str:
     grid, palette = S.hero_grid_and_palette(weapon, armor, bool(accessory),
-                                             bool(poisoned), rarity)
+                                             bool(poisoned), rarity, facing)
     return json.dumps({"grid": grid, "palette": palette})
 
 
@@ -329,6 +331,19 @@ def floor_data_json() -> str:
     })
 
 
+def _boss_info(floor) -> dict | None:
+    boss = next((m for m in floor.monsters if m.is_boss and m.is_alive()), None)
+    if boss is None:
+        return None
+    kit = boss_module.BOSS_KITS.get(boss.name[:-5])
+    return {
+        "title": kit.title if kit else boss.name,
+        "phase": boss.boss_state.get("phase", 1),
+        "hp": boss.hp,
+        "max_hp": boss.max_hp,
+    }
+
+
 def snapshot_json() -> str:
     global _last_floor_depth
     p = STATE.player
@@ -338,6 +353,7 @@ def snapshot_json() -> str:
 
     poison = next((e for e in p.status_effects if e.get("type") == "poison"), None)
     cause = STATE.log[-2] if STATE.game_over and len(STATE.log) >= 2 else None
+    boss = _boss_info(floor)
 
     snap = {
         "depth": STATE.depth,
@@ -355,9 +371,9 @@ def snapshot_json() -> str:
         "puzzle": (puzzle_module.view(floor.puzzle)
                    if STATE.pending_puzzle and floor.puzzle else None),
         "puzzle_props": _puzzle_props(floor),
-        "boss_alive": any(m.is_boss and m.is_alive() for m in floor.monsters),
-        "music_track": audio_synth.track_for_depth(
-            STATE.depth, any(m.is_boss and m.is_alive() for m in floor.monsters)),
+        "boss_alive": boss is not None,
+        "boss": boss,
+        "music_track": audio_synth.track_for_depth(STATE.depth, boss is not None),
         "player": {
             "x": p.x, "y": p.y, "hp": p.hp, "max_hp": p.max_hp,
             "level": p.level, "xp": p.xp, "xp_to_next": p.xp_to_next,

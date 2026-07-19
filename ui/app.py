@@ -13,6 +13,7 @@ import os
 import time
 import tkinter as tk
 
+from engine import bosses as boss_module
 from engine import constants as C
 from engine import puzzles as puzzle_module
 from engine import save as save_module
@@ -68,6 +69,10 @@ class App(tk.Tk):
         self._fx_running = False
         self._shake_applied = (0, 0)
         self._title_pulse_idx = 0
+        self.hero_facing = "down"
+        self._lunges: list = []      # short attack lunges (hero + monsters)
+        self._lunge_running = False
+        self._anim_tick = 0          # slow idle-sway phase
 
         self.settings = save_module.load_settings()
         # Migrate the old single "muted" flag to the split music/sfx toggles.
@@ -84,7 +89,7 @@ class App(tk.Tk):
 
         # Pixel-art sprites (must be built after the Tk root exists).
         self.sprites = sprite_defs.build_sprites(zoom=T.TILE_SIZE // sprite_defs.SPRITE_PX)
-        self.big_hero = sprite_defs.build_sprite("player", zoom=8)
+        self.big_hero = sprite_defs.build_sprite("player", zoom=4)  # 32px grid x4 = 128px
         self._hero_cache: dict = {}
 
         self.bind("<Key>", self._on_key)
@@ -115,6 +120,7 @@ class App(tk.Tk):
         self.after(400, self._audio_tick)
         self.after(500, self._title_tick)
         self.after(300, self._stopwatch_tick)
+        self.after(420, self._sway_tick)
 
     # ------------------------------------------------------------------
     # Screen construction
@@ -137,7 +143,7 @@ class App(tk.Tk):
         monster_row.pack(pady=(0, 8))
         self._title_monster_imgs = []
         for key in ("rat", "goblin", "skeleton", "wraith", "knight", "lich"):
-            img = sprite_defs.build_sprite(key, zoom=3)
+            img = sprite_defs.build_sprite(key, zoom=2)  # 32px grid x2 = 64px
             self._title_monster_imgs.append(img)  # keep refs or tk drops them
             tk.Label(monster_row, image=img, bg=T.BG).pack(side="left", padx=6)
 
@@ -497,6 +503,18 @@ class App(tk.Tk):
         self.hp_bar.pack(anchor="w", padx=10, pady=(4, 2))
         self.xp_bar = tk.Canvas(panel, width=220, height=12, bg=T.PANEL_BG, highlightthickness=0)
         self.xp_bar.pack(anchor="w", padx=10, pady=(2, 4))
+
+        # Boss nameplate: the frame is packed once, right here, so its
+        # position in the panel is fixed forever; its two children are
+        # pack()/pack_forget()'d in _render_panel to show/hide the
+        # nameplate without ever re-packing (and thus re-ordering) the
+        # frame itself among its panel siblings.
+        self.boss_frame = tk.Frame(panel, bg=T.PANEL_BG)
+        self.boss_frame.pack(anchor="w", fill="x")
+        self.boss_name_label = tk.Label(self.boss_frame, text="", font=T.UI_FONT_BOLD,
+                                          bg=T.PANEL_BG, fg="#ff6b6b", anchor="w")
+        self.boss_bar = tk.Canvas(self.boss_frame, width=220, height=14, bg=T.PANEL_BG,
+                                    highlightthickness=0)
 
         self.status_label = self._panel_label(panel, "")
         self.attack_label = self._panel_label(panel, "Attack: 0")
@@ -1129,6 +1147,8 @@ class App(tk.Tk):
             return
         if ks in MOVE_KEYS:
             dx, dy = MOVE_KEYS[ks]
+            self.hero_facing = ("left" if dx < 0 else "right" if dx > 0
+                                else "up" if dy < 0 else "down")
             self.state.try_move_player(dx, dy)
             self._after_player_action()
 
@@ -1167,11 +1187,17 @@ class App(tk.Tk):
                 color = "#ffd24a" if ev.get("crit") else "#ffffff"
                 self._add_fx("num", x=ev["x"], y=ev["y"], text=str(ev["dmg"]), color=color)
                 self._add_fx("flash", x=ev["x"], y=ev["y"], color="#ffffff", ttl=3)
+                self._add_lunge("hero", (ev["x"] > p.x) - (ev["x"] < p.x),
+                                (ev["y"] > p.y) - (ev["y"] < p.y))
             elif et == "player_hit":
                 self.audio.play("player_hurt")
                 self._add_fx("num", x=p.x, y=p.y, text=str(ev["dmg"]), color="#ff6b6b")
                 self._add_fx("flash", x=p.x, y=p.y, color="#e04848", ttl=3)
                 self._shake(5 if ev.get("crit") else 3)
+                if "x" in ev:
+                    self._add_lunge((ev["x"], ev["y"]),
+                                    (p.x > ev["x"]) - (p.x < ev["x"]),
+                                    (p.y > ev["y"]) - (p.y < ev["y"]))
             elif et == "kill":
                 self.audio.play("boss_kill" if ev.get("boss") else "kill")
                 self._add_fx("poof", x=ev["x"], y=ev["y"],
@@ -1263,6 +1289,24 @@ class App(tk.Tk):
                 self.audio.play("plate")
             elif et == "push":
                 self.audio.play("push")
+            elif et == "boss_telegraph":
+                self.audio.play("boss_telegraph")
+                self._add_fx("flash", x=ev["x"], y=ev["y"], color="#ff3b3b", ttl=6)
+            elif et == "boss_phase":
+                self.audio.play("boss_phase")
+                self._add_fx("sparkle", x=ev["x"], y=ev["y"], ttl=18)
+                self._shake(5)
+            elif et == "boss_ability":
+                self.audio.play("boss_ability")
+                self._add_fx("flash", x=ev["x"], y=ev["y"], color="#e0303a", ttl=4)
+            elif et == "boss_ability_miss":
+                self.audio.play("boss_ability_miss")
+                self._add_fx("num", x=p.x, y=p.y, text="miss!", color="#8fd9ef")
+            elif et == "boss_door_sealed":
+                self.audio.play("locked")
+            elif et == "boss_arena_open":
+                self.audio.play("unlock")
+                self._add_fx("sparkle", x=ev["x"], y=ev["y"], ttl=16)
 
     def _update_music(self):
         if self.audio.muted or self.state is None:
@@ -1273,6 +1317,51 @@ class App(tk.Tk):
     # ------------------------------------------------------------------
     # Animation system
     # ------------------------------------------------------------------
+    # ---- procedural animation: idle sway + attack lunges --------------
+    LUNGE_PX = {3: 7, 2: 10, 1: 4}  # ttl -> pixel offset (out, peak, back)
+
+    def _add_lunge(self, who, dx: int, dy: int):
+        """who = "hero" or the attacking monster's (x, y) position."""
+        self._lunges.append({"who": who, "dx": dx, "dy": dy, "ttl": 3})
+        if not self._lunge_running:
+            self._lunge_running = True
+            self.after(70, self._lunge_tick)
+
+    def _lunge_tick(self):
+        if self._closing:
+            return
+        for lunge in self._lunges:
+            lunge["ttl"] -= 1
+        self._lunges = [l for l in self._lunges if l["ttl"] > 0]
+        if self.mode in ("play", "dying") and self.state is not None:
+            self._render_canvas()
+        if self._lunges:
+            self.after(70, self._lunge_tick)
+        else:
+            self._lunge_running = False
+
+    def _lunge_offsets(self):
+        """(hero_offset, {monster_pos: offset}) in canvas pixels."""
+        hero_off, monster_offs = (0, 0), {}
+        for lunge in self._lunges:
+            off = self.LUNGE_PX.get(lunge["ttl"], 0)
+            vec = (lunge["dx"] * off, lunge["dy"] * off)
+            if lunge["who"] == "hero":
+                hero_off = vec
+            else:
+                monster_offs[lunge["who"]] = vec
+        return hero_off, monster_offs
+
+    def _sway_tick(self):
+        """Slow ambient tick: monsters (and the idle hero) breathe."""
+        if self._closing:
+            return
+        self._anim_tick += 1
+        if (self.mode == "play" and self.state is not None
+                and not self._lunges):
+            self._render_canvas()
+        self.after(420, self._sway_tick)
+
     def _add_fx(self, kind: str, **data):
         fx = {"kind": kind, "age": 0}
         fx.update(data)
@@ -1599,16 +1688,17 @@ class App(tk.Tk):
                 armor = "chain"
         accessory = p.equipped_accessory is not None
         poisoned = any(e.get("type") == "poison" for e in p.status_effects)
-        return (weapon, armor, accessory, poisoned, rarity)
+        return (weapon, armor, accessory, poisoned, rarity,
+                getattr(self, "hero_facing", "down"))
 
     def _hero_sprite(self):
         key = self._hero_variant_key()
         if key not in self._hero_cache:
-            weapon, armor, accessory, poisoned, rarity = key
+            weapon, armor, accessory, poisoned, rarity, facing = key
             self._hero_cache[key] = sprite_defs.build_hero(
                 weapon=weapon, armor=armor, accessory=accessory,
                 poisoned=poisoned, weapon_rarity=rarity,
-                zoom=T.TILE_SIZE // sprite_defs.SPRITE_PX)
+                zoom=T.TILE_SIZE // sprite_defs.SPRITE_PX, facing=facing)
         return self._hero_cache[key]
 
     @staticmethod
@@ -1626,6 +1716,7 @@ class App(tk.Tk):
         player = self.state.player
         ts = T.TILE_SIZE
         sprites = self.sprites
+        hero_off, monster_offs = self._lunge_offsets()
 
         cam_x = min(max(player.x - T.VIEWPORT_COLS // 2, 0), max(0, floor.width - T.VIEWPORT_COLS))
         cam_y = min(max(player.y - T.VIEWPORT_ROWS // 2, 0), max(0, floor.height - T.VIEWPORT_ROWS))
@@ -1683,20 +1774,27 @@ class App(tk.Tk):
                                                 font=T.GLYPH_FONT, fill=gi.item.color)
                     monster = floor.monster_at(fx, fy)
                     if monster:
-                        canvas.create_image(sx, sy, image=sprites[self._monster_sprite_key(monster)],
+                        ox, oy = monster_offs.get((fx, fy), (0, 0))
+                        if (ox, oy) == (0, 0):
+                            oy = (fx * 7 + fy * 13 + self._anim_tick) % 2  # idle sway
+                        mx, my = sx + ox, sy + oy
+                        canvas.create_image(mx, my, image=sprites[self._monster_sprite_key(monster)],
                                              anchor="nw")
                         if monster.is_boss:
-                            canvas.create_image(sx, sy, image=sprites["crown"], anchor="nw")
+                            canvas.create_image(mx, my, image=sprites["crown"], anchor="nw")
                         if monster.hp < monster.max_hp:
                             frac = max(0.0, monster.hp / monster.max_hp)
                             bar_w = ts - 8
-                            canvas.create_rectangle(sx + 4, sy + 1, sx + 4 + bar_w, sy + 4,
+                            canvas.create_rectangle(mx + 4, my + 1, mx + 4 + bar_w, my + 4,
                                                      fill="#20141a", outline="")
-                            canvas.create_rectangle(sx + 4, sy + 1, sx + 4 + int(bar_w * frac),
-                                                     sy + 4, fill="#e04848", outline="")
+                            canvas.create_rectangle(mx + 4, my + 1, mx + 4 + int(bar_w * frac),
+                                                     my + 4, fill="#e04848", outline="")
 
         px, py = (player.x - cam_x) * ts, (player.y - cam_y) * ts
-        canvas.create_image(px, py, image=self._hero_sprite(), anchor="nw")
+        hx, hy = hero_off
+        if (hx, hy) == (0, 0):
+            hy = self._anim_tick % 2  # idle breathing
+        canvas.create_image(px + hx, py + hy, image=self._hero_sprite(), anchor="nw")
 
     def _copy_seed(self):
         if self.state is None:
@@ -1726,6 +1824,7 @@ class App(tk.Tk):
         self._draw_bar(self.hp_bar, p.hp / max(1, p.max_hp), "#e05656",
                         "#3a2020", f"HP  {p.hp}/{p.max_hp}")
         self._draw_bar(self.xp_bar, p.xp / max(1, p.xp_to_next), "#66d9ef", "#20303a", "")
+        self._render_boss_nameplate()
 
         poison = next((e for e in p.status_effects if e.get("type") == "poison"), None)
         if poison:
@@ -1744,6 +1843,21 @@ class App(tk.Tk):
             text=f"Accessory: {p.equipped_accessory.name if p.equipped_accessory else '(none)'}")
         self.kills_label.configure(text=f"Kills: {p.kills}    Turns: {p.turns}")
         self._render_minimap()
+
+    def _render_boss_nameplate(self):
+        boss = next((m for m in self.state.floor.monsters if m.is_boss and m.is_alive()), None)
+        if boss is None:
+            self.boss_name_label.pack_forget()
+            self.boss_bar.pack_forget()
+            return
+        kit = boss_module.BOSS_KITS.get(boss.name[:-5])
+        title = kit.title if kit else boss.name
+        phase = boss.boss_state.get("phase", 1)
+        self.boss_name_label.configure(text=f"{title}  -  Phase {phase}")
+        self.boss_name_label.pack(anchor="w", padx=10, pady=(4, 0))
+        self.boss_bar.pack(anchor="w", padx=10, pady=(2, 4))
+        self._draw_bar(self.boss_bar, boss.hp / max(1, boss.max_hp), "#ff3b3b",
+                        "#2a1414", f"{boss.hp}/{boss.max_hp}")
 
     def _render_minimap(self):
         mm = self.minimap
@@ -1765,6 +1879,8 @@ class App(tk.Tk):
                     color = "#f2c94c"
                 elif tile == C.TILE_DOOR:
                     color = "#e0a83a"
+                elif tile == C.TILE_BOSS_DOOR:
+                    color = "#ff3b3b"
                 elif tile in (C.TILE_LEVER, C.TILE_BLOCK):
                     color = "#5a5a68"
                 else:

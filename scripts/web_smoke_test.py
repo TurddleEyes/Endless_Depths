@@ -19,6 +19,7 @@ def test_no_tkinter():
 
 
 def test_atlas():
+    from ui.spritedata import SPRITE_PX
     atlas = json.loads(webbridge.sprite_atlas_json())
     for key in ("floor", "floor_dim", "wall", "stairs", "goblin", "lich",
                  "sword", "potion", "crown", "trap_spike", "decor_bones", "shopkeeper",
@@ -26,10 +27,163 @@ def test_atlas():
                  "lever_up", "lever_down", "plate_off", "plate_on", "block",
                  "rune_switch"):
         assert key in atlas, f"atlas missing {key}"
-        assert len(atlas[key]["grid"]) == 16
+        assert len(atlas[key]["grid"]) == SPRITE_PX
     hero = json.loads(webbridge.hero_sprite_json("axe", "plate", True, False, "legendary"))
-    assert len(hero["grid"]) == 16 and hero["palette"]
-    print(f"OK: sprite atlas exports {len(atlas)} sprites + hero variants")
+    assert len(hero["grid"]) == SPRITE_PX and hero["palette"]
+    print(f"OK: sprite atlas exports {len(atlas)} sprites + hero variants at {SPRITE_PX}px")
+
+
+def test_monster_sprite_completeness():
+    """Every monster template must map to a real sprite. Both renderers
+    fall back to the goblin sprite for unmapped names, so a forgotten
+    MONSTER_KEYS entry would silently ship a deep-floor monster wearing a
+    goblin costume rather than crashing anything."""
+    from engine.entities import MONSTER_TEMPLATES
+    from ui.spritedata import MONSTER_KEYS, SPRITE_DEFS, SPRITE_PX
+    for name, *_ in MONSTER_TEMPLATES:
+        assert name in MONSTER_KEYS, f"MONSTER_KEYS missing {name!r}"
+    assert "Mimic" in MONSTER_KEYS  # not a template; hatches from chests
+    for name, key in MONSTER_KEYS.items():
+        assert key in SPRITE_DEFS, f"{name!r} maps to unknown sprite {key!r}"
+        grid, palette = SPRITE_DEFS[key]
+        assert len(grid) == SPRITE_PX and all(len(row) == SPRITE_PX for row in grid), \
+            f"sprite {key!r} is not a clean {SPRITE_PX}x{SPRITE_PX} grid"
+        used_chars = {ch for row in grid for ch in row if ch != "."}
+        missing = used_chars - set(palette)
+        assert not missing, f"sprite {key!r} uses unmapped palette chars {missing}"
+    print(f"OK: all {len(MONSTER_KEYS)} monster names map to valid "
+          f"{SPRITE_PX}x{SPRITE_PX} sprites")
+
+
+def test_hero_facings():
+    """The hero has four facings; left is a mirror of right, up hides the
+    weapon, and the bridge accepts the facing argument (with a default,
+    so older calls keep working)."""
+    from ui.spritedata import SPRITE_PX
+    grids = {}
+    for facing in ("down", "up", "left", "right"):
+        hero = json.loads(webbridge.hero_sprite_json(
+            "sword", "plate", True, False, "rare", facing))
+        assert len(hero["grid"]) == SPRITE_PX
+        grids[facing] = hero["grid"]
+    assert grids["left"] == [row[::-1] for row in grids["right"]], \
+        "left must be the mirror of right"
+    assert grids["up"] != grids["down"], "up and down must differ"
+    assert grids["right"] != grids["down"], "side and down must differ"
+    # Facing up hides the blade: no 's' (blade slot) pixels in the up grid.
+    assert not any("s" in row for row in grids["up"]), \
+        "the weapon should be hidden when facing up"
+    print("OK: hero facings - four poses, left mirrors right, weapon hidden "
+          "when facing up")
+
+
+def test_texture_codec_and_pack():
+    """Pure-stdlib PNG codec + textures/ pack loader (ui/texturepack.py)."""
+    import struct
+    import tempfile
+    import zlib as _zlib
+    from ui import spritedata as S
+    from ui import texturepack as TP
+
+    # Round-trip: our encoder -> our decoder, on a real shipped sprite.
+    rows = TP.grid_to_px(*S.SPRITE_DEFS["rat"])
+    assert TP.decode_png(TP.encode_png(rows)) == rows
+
+    # Decoder handles all five scanline filters (editors use them freely).
+    w, h = 4, 5
+    pixels = [[(x * 40 + y, 255 - x * 30, (x * y * 17) % 256, 255)
+               for x in range(w)] for y in range(h)]
+    raw = bytearray()
+    prev = bytes(w * 4)
+    for y, ftype in enumerate((0, 1, 2, 3, 4)):
+        line = bytes(v for px in pixels[y] for v in px)
+        raw.append(ftype)
+        for i in range(len(line)):
+            left = line[i - 4] if i >= 4 else 0
+            up = prev[i]
+            ul = prev[i - 4] if i >= 4 else 0
+            if ftype == 0:
+                pred = 0
+            elif ftype == 1:
+                pred = left
+            elif ftype == 2:
+                pred = up
+            elif ftype == 3:
+                pred = (left + up) // 2
+            else:
+                p = left + up - ul
+                pa, pb, pc = abs(p - left), abs(p - up), abs(p - ul)
+                pred = left if (pa <= pb and pa <= pc) else (up if pb <= pc else ul)
+            raw.append((line[i] - pred) & 0xFF)
+        prev = line
+
+    def chunk(tag, body):
+        return (struct.pack(">I", len(body)) + tag + body
+                + struct.pack(">I", _zlib.crc32(tag + body)))
+
+    filtered_png = (b"\x89PNG\r\n\x1a\n"
+                    + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0))
+                    + chunk(b"IDAT", _zlib.compress(bytes(raw)))
+                    + chunk(b"IEND", b""))
+    assert TP.decode_png(filtered_png) == pixels, "filter reconstruction failed"
+
+    # Palettized (color type 3) with transparency - Aseprite-style output.
+    plte = bytes((255, 0, 0, 0, 255, 0))       # red, green
+    trns = bytes((0,))                          # palette index 0 transparent
+    idx_raw = b"".join(b"\x00" + bytes(row) for row in ((0, 1), (1, 0)))
+    pal_png = (b"\x89PNG\r\n\x1a\n"
+               + chunk(b"IHDR", struct.pack(">IIBBBBB", 2, 2, 8, 3, 0, 0, 0))
+               + chunk(b"PLTE", plte) + chunk(b"tRNS", trns)
+               + chunk(b"IDAT", _zlib.compress(idx_raw))
+               + chunk(b"IEND", b""))
+    assert TP.decode_png(pal_png) == [
+        [(255, 0, 0, 0), (0, 255, 0, 255)],
+        [(0, 255, 0, 255), (255, 0, 0, 0)],
+    ]
+
+    # Pack loader: size normalization, hero routing, and rejection paths.
+    with tempfile.TemporaryDirectory() as root:
+        def put(name, size, color=(10, 20, 30, 255)):
+            grid = [[color] * size for _ in range(size)]
+            path = os.path.join(root, name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(TP.encode_png(grid))
+            return grid
+
+        native = put("monsters/rat.png", 32)
+        small = put("tiles/floor.png", 16, (50, 60, 70, 255))
+        big = put("monsters/lich.png", 64, (1, 2, 3, 255))
+        put("hero/hero_base.png", 32, (99, 98, 97, 255))
+        put("hero/weapon_axe.png", 32, (96, 95, 94, 255))
+        put("bad/wrongsize.png", 20)
+        with open(os.path.join(root, "bad", "corrupt.png"), "wb") as f:
+            f.write(b"not a png at all")
+
+        sprites, hero, warnings = TP.load_pack(root, for_desktop=True)
+        assert sprites["rat"] == native
+        assert sprites["floor"] == TP.scale2x_px(small) and len(sprites["floor"]) == 32
+        assert len(sprites["lich"]) == 32, "64px should downsample on desktop"
+        assert hero["base"] is not None and "axe" in hero["weapons"]
+        assert "wrongsize" not in sprites and "corrupt" not in sprites
+        assert len(warnings) == 2, f"expected 2 warnings, got: {warnings}"
+
+        web_sprites, _h, _w = TP.load_pack(root, for_desktop=False)
+        assert len(web_sprites["lich"]) == 64, "64px should stay native on web"
+        assert web_sprites["lich"] == big
+
+    # The real exported textures/ (when present) must decode back to
+    # exactly the built-in art it was generated from.
+    real_root = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "textures")
+    if os.path.isdir(real_root):
+        sprites, hero, warnings = TP.load_pack(real_root)
+        assert not warnings, f"shipped textures have problems: {warnings}"
+        for probe in ("rat", "wall", "chest"):
+            assert sprites[probe] == TP.grid_to_px(*S.SPRITE_DEFS[probe])
+        assert hero["base"] is not None and len(hero["weapons"]) == 5
+    print("OK: PNG codec round-trips (all filters + palette), pack loader "
+          "normalizes 16/32/64 and rejects bad files")
 
 
 def test_game_flow():
@@ -269,6 +423,9 @@ def test_audio_synth():
 if __name__ == "__main__":
     test_no_tkinter()
     test_atlas()
+    test_monster_sprite_completeness()
+    test_hero_facings()
+    test_texture_codec_and_pack()
     test_game_flow()
     test_inventory_and_shop()
     test_save_load_roundtrip()

@@ -46,6 +46,9 @@ FILES=(
     web/main.js
     web/style.css
     web/webbridge.py
+    web/title_bg.png
+    web/title_logo.png
+    web/title_icons.png
     engine/__init__.py
     engine/combat.py
     engine/constants.py
@@ -88,6 +91,16 @@ for f in "${FILES[@]}"; do
     mkdir -p "$STAGING_DIR/$(dirname "$f")"
     cp -p "$REPO_ROOT/$f" "$STAGING_DIR/$f"
 done
+
+# Texture pack (PNG overrides + manifest): shipped when present. The web
+# build reads textures/manifest.json at boot and silently skips it if the
+# folder was never exported.
+if [ -f "$REPO_ROOT/textures/manifest.json" ]; then
+    TEX_COUNT="$(find "$REPO_ROOT/textures" -name '*.png' | wc -l)"
+    echo "Staging texture pack ($TEX_COUNT PNGs + manifest) ..."
+    mkdir -p "$STAGING_DIR/textures"
+    cp -rp "$REPO_ROOT/textures/." "$STAGING_DIR/textures/"
+fi
 
 # Always delete any previous zip first: `zip -r` merges into an existing
 # archive rather than replacing it, which could leave stale entries behind

@@ -70,6 +70,9 @@ class Floor:
     shop_stock: list = field(default_factory=list)
     chests: list = field(default_factory=list)
     puzzle: Optional[dict] = None
+    # True while a boss guards this floor's stairs (TILE_BOSS_DOOR sits on
+    # stairs_pos); cleared when GameState._kill_monster() defeats the boss.
+    boss_arena_sealed: bool = False
     # Bumped by GameState._set_tile whenever the map mutates mid-floor
     # (door dissolving, chest opened, block pushed) so the web renderer
     # knows to re-fetch its static floor data.
@@ -202,6 +205,14 @@ def generate_floor(depth: int, rng) -> Floor:
                 monsters.append(generate_monster(depth, rng, mx, my, force_boss=force_boss))
                 break
 
+    # Seal the stairs behind an arena door while the boss lives - but only
+    # if a boss actually made it onto the floor (placement can fail all its
+    # attempts on a cramped floor; sealing an arena with no boss inside
+    # would softlock the run).
+    boss_arena_sealed = is_boss_floor and any(m.is_boss for m in monsters)
+    if boss_arena_sealed:
+        tiles[stairs_pos[1]][stairs_pos[0]] = C.TILE_BOSS_DOOR
+
     ground_items = []
     # Loot density tracks the 60x32 map: the old 2-4 items on a 48x26 grid
     # left early floors too barren to find a starting weapon before the
@@ -324,6 +335,7 @@ def generate_floor(depth: int, rng) -> Floor:
         shop_stock=shop_stock,
         chests=chests,
         puzzle=puzzle,
+        boss_arena_sealed=boss_arena_sealed,
         explored=explored,
         visible=visible,
     )

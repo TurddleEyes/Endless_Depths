@@ -1,13 +1,53 @@
-"""Pixel-art sprite data: 16x16 grids of palette characters ('.' = transparent).
+"""Pixel-art sprite data: grids of palette characters ('.' = transparent).
 
 Pure data + helpers, no tkinter - shared by the desktop renderer
 (ui/sprites.py) and the browser build (web/webbridge.py).
+
+Sprites are AUTHORED at 16x16 (_SRC_PX) and SHIPPED at 32x32 (SPRITE_PX):
+every grid is doubled once, at import time, through Scale2x (EPX) - the
+classic pixel-art upscaler that rounds diagonal staircases without
+blurring or inventing colors. Renderers only ever see 32x32 grids. To
+hand-detail an individual sprite at full resolution later, author it at
+32x32 and add its key to NATIVE_32 so the upscaler leaves it alone.
 """
 from __future__ import annotations
 
-SPRITE_PX = 16
+_SRC_PX = 16      # authoring resolution (all grids below)
+SPRITE_PX = 32    # shipped resolution (after Scale2x, see end of module)
 OUTLINE = "#14141a"
 MISSING = "#ff00ff"  # loud fallback for any palette-char typo
+
+# Keys whose grids are already authored at 32x32 and skip the upscaler.
+NATIVE_32: set = set()
+
+
+def _scale2x(grid) -> list:
+    """Scale2x/EPX: double a char grid, rounding diagonals.
+
+    For each source pixel P with orthogonal neighbors A (up), B (right),
+    C (left), D (down), the four output sub-pixels are the neighbor color
+    where two like neighbors meet at a corner, else P. Equality is plain
+    char equality, so '.' (transparent) participates naturally and no new
+    palette entries are ever created.
+    """
+    # Pad to a clean square first - a few decorative grids are authored
+    # with trailing blank rows omitted.
+    rows = [(grid[i] if i < len(grid) else "")[:_SRC_PX].ljust(_SRC_PX, ".")
+            for i in range(_SRC_PX)]
+    h = w = _SRC_PX
+    out = [[None] * (w * 2) for _ in range(h * 2)]
+    for y in range(h):
+        for x in range(w):
+            p = rows[y][x]
+            a = rows[y - 1][x] if y > 0 else p
+            d = rows[y + 1][x] if y < h - 1 else p
+            c = rows[y][x - 1] if x > 0 else p
+            b = rows[y][x + 1] if x < w - 1 else p
+            out[y * 2][x * 2] = a if (c == a and c != d and a != b) else p
+            out[y * 2][x * 2 + 1] = b if (a == b and a != c and b != d) else p
+            out[y * 2 + 1][x * 2] = c if (d == c and d != b and c != a) else p
+            out[y * 2 + 1][x * 2 + 1] = d if (b == d and b != a and d != c) else p
+    return ["".join(r) for r in out]
 
 # ----------------------------------------------------------------------
 # Shared body shapes (recolored per creature via palettes)
@@ -142,6 +182,28 @@ WYVERN = [
     "........o.......",
     "................",
     "................",
+    "................",
+]
+
+# The Unfinished One: a HUMANOID_BIG the Well never finished drawing -
+# the right side simply stops, with a few stray pixels of static ("x")
+# where the rest of it should have been.
+UNFINISHED = [
+    "................",
+    "................",
+    "...oooooo.......",
+    "..oaaaaaao......",
+    "..oaeaaeao......",
+    "..oaaaaaao......",
+    "..oaaffaao......",
+    "...oaaaao.......",
+    "..ooaaaa.x......",
+    ".oaoaaaa..x.....",
+    ".oa.oaa......x..",
+    ".oo.oaa.........",
+    "....oa.....x....",
+    "....o...........",
+    "...oo...........",
     "................",
 ]
 
@@ -307,6 +369,115 @@ HELD_WEAPONS = {
     "spear": HELD_SPEAR,
 }
 
+# ---- directional hero poses ----
+# "down" is HERO_BASE (the classic front view). "up" hides the face and the
+# held weapon (both are on the far side of the body). "side" faces RIGHT;
+# the left-facing sprite is a runtime mirror of the composed right-facing
+# one, so no separate art exists for it.
+HERO_BASE_UP = [
+    "................",
+    "....oooo........",
+    "...ohhhho.......",
+    "...ohhhho.......",
+    "...ohhhho.......",
+    "...ohhhho.......",
+    "....offo........",
+    "..otttttto......",
+    "..otttttto......",
+    "..otttttto......",
+    "...obbbbo.......",
+    "...ob..bo.......",
+    "...oo..oo.......",
+    "................",
+    "................",
+    "................",
+]
+
+HERO_BASE_SIDE = [
+    "................",
+    "....oooo........",
+    "...ohhhho.......",
+    "...ohfffo.......",
+    "...ohfefo.......",
+    "...ohfffo.......",
+    "....offo........",
+    "...ottttto......",
+    "...ottttto......",
+    "...ottttto......",
+    "....obbbo.......",
+    "....ob.bo.......",
+    "....oo.oo.......",
+    "................",
+    "................",
+    "................",
+]
+
+# Side-view weapons: held level, pointing the way the hero walks.
+HELD_SWORD_SIDE = [
+    "................", "................", "................",
+    "................", "................", "................",
+    "................", "................",
+    "........mgsssw..",
+    "................", "................", "................",
+    "................", "................", "................",
+    "................",
+]
+HELD_DAGGER_SIDE = [
+    "................", "................", "................",
+    "................", "................", "................",
+    "................", "................",
+    "........mgsw....",
+    "................", "................", "................",
+    "................", "................", "................",
+    "................",
+]
+HELD_AXE_SIDE = [
+    "................", "................", "................",
+    "................", "................", "................",
+    "................",
+    "...........sw...",
+    "........mmmms...",
+    "...........ss...",
+    "................", "................",
+    "................", "................", "................",
+    "................",
+]
+HELD_HAMMER_SIDE = [
+    "................", "................", "................",
+    "................", "................", "................",
+    "................",
+    "...........sss..",
+    "........mmmsss..",
+    "...........sss..",
+    "................", "................",
+    "................", "................", "................",
+    "................",
+]
+HELD_SPEAR_SIDE = [
+    "................", "................", "................",
+    "................", "................", "................",
+    "................", "................",
+    ".......mmmmmmw..",
+    "................", "................", "................",
+    "................", "................", "................",
+    "................",
+]
+
+HELD_WEAPONS_SIDE = {
+    "dagger": HELD_DAGGER_SIDE,
+    "sword": HELD_SWORD_SIDE,
+    "axe": HELD_AXE_SIDE,
+    "hammer": HELD_HAMMER_SIDE,
+    "spear": HELD_SPEAR_SIDE,
+}
+
+HERO_FACINGS = ("down", "up", "left", "right")
+
+
+def mirror_grid(grid):
+    """Horizontal flip (used for the left-facing hero)."""
+    return [row[::-1] for row in grid]
+
 PLAYER_PALETTE = {
     "o": OUTLINE, "h": "#7a4a22", "f": "#eab984", "e": "#20242c",
     "t": "#3868c8", "b": "#28304a", "w": "#f0f4fa",
@@ -332,29 +503,47 @@ POISONED_SKIN = "#9ec089"
 
 
 def _compose(base, *overlays):
-    """Merge overlay grids onto a base grid; non-'.' overlay pixels win."""
-    rows = [list((base[i] if i < len(base) else "")[:SPRITE_PX].ljust(SPRITE_PX, "."))
-            for i in range(SPRITE_PX)]
+    """Merge overlay grids onto a base grid; non-'.' overlay pixels win.
+    Works at authoring resolution - callers upscale the finished result,
+    so Scale2x gets to smooth ACROSS layer boundaries (hand meets hilt)."""
+    rows = [list((base[i] if i < len(base) else "")[:_SRC_PX].ljust(_SRC_PX, "."))
+            for i in range(_SRC_PX)]
     for overlay in overlays:
         if not overlay:
             continue
-        for y in range(min(SPRITE_PX, len(overlay))):
+        for y in range(min(_SRC_PX, len(overlay))):
             row = overlay[y]
-            for x in range(min(SPRITE_PX, len(row))):
+            for x in range(min(_SRC_PX, len(row))):
                 if row[x] != ".":
                     rows[y][x] = row[x]
     return ["".join(r) for r in rows]
 
 
 def hero_grid_and_palette(weapon="sword", armor="none", accessory=False,
-                           poisoned=False, weapon_rarity="common"):
-    """Pure-data hero variant (no tkinter needed) - grid + palette."""
+                           poisoned=False, weapon_rarity="common",
+                           facing="down"):
+    """Pure-data hero variant (no tkinter needed) - grid + palette.
+    Returned grid is at shipped resolution (SPRITE_PX). facing is one of
+    HERO_FACINGS; "left" mirrors the composed right-facing sprite."""
     overlays = []
-    if weapon != "none":
-        overlays.append(HELD_WEAPONS.get(weapon, HELD_SWORD))
-    if accessory:
-        overlays.append(ACCESSORY_OVERLAY)
-    grid = _compose(HERO_BASE, *overlays)
+    if facing == "up":
+        base = HERO_BASE_UP          # weapon and pendant are behind the body
+    elif facing in ("left", "right"):
+        base = HERO_BASE_SIDE
+        if weapon != "none":
+            overlays.append(HELD_WEAPONS_SIDE.get(weapon, HELD_SWORD_SIDE))
+        if accessory:
+            overlays.append(ACCESSORY_OVERLAY)
+    else:
+        base = HERO_BASE
+        if weapon != "none":
+            overlays.append(HELD_WEAPONS.get(weapon, HELD_SWORD))
+        if accessory:
+            overlays.append(ACCESSORY_OVERLAY)
+    grid = _compose(base, *overlays)
+    if facing == "left":
+        grid = mirror_grid(grid)
+    grid = _scale2x(grid)
     palette = dict(PLAYER_PALETTE)
     palette["t"] = ARMOR_TUNIC_COLORS.get(armor, ARMOR_TUNIC_COLORS["none"])
     palette["s"] = BLADE_RARITY_COLORS.get(weapon_rarity, BLADE_RARITY_COLORS["common"])
@@ -735,21 +924,25 @@ WALL_TILE_CRACKED = [
     "aaamaaaaaaaamaaa",
 ]
 
+# A stairwell seen from above: three treads step down and inward, each a
+# bright lit nosing over a darkening tread with a hard shadow line between
+# steps (the banding is what makes it read as STAIRS at tile size), ending
+# in a void with a faint glint from somewhere far below.
 STAIRS_TILE = [
     "aaaaaaaaaaaaaaaa",
     "aaaaaaaaaaaaaaaa",
-    "aa1111222233kkaa",
-    "aa1111222233kkaa",
-    "aa1111222233kkaa",
-    "aa1w11222233kkaa",
-    "aa11w12222w3kkaa",
-    "aa111w22w233kkaa",
-    "aa1111ww2233kkaa",
-    "aa1111222233kkaa",
-    "aa1111222233kkaa",
-    "aa1111222233kkaa",
-    "aa1111222233kkaa",
-    "aa1111222233kkaa",
+    "aaddddddddddddaa",
+    "aadhhhhhhhhhhdaa",
+    "aad1111111111daa",
+    "aadggggggggggdaa",
+    "aaddhhhhhhhhddaa",
+    "aadd22222222ddaa",
+    "aaddggggggggddaa",
+    "aadddhhhhhhdddaa",
+    "aaddd333333dddaa",
+    "aadddggggggdddaa",
+    "aaddddkwwkddddaa",
+    "aaddddkkkkddddaa",
     "aaaaaaaaaaaaaaaa",
     "aaaaaaaaaaaaaaaa",
 ]
@@ -766,6 +959,25 @@ DOOR_RUNE_TILE = [
     "sddddddrrrdddDds",
     "sdddddrdrdrddDds",
     "sdddddddrddddDds",
+    "sdkddddddddddkds",
+    "sdddddddddddddds",
+    "sdddddddddddddds",
+    "sdddddddddddddds",
+    "ssssssssssssssss",
+]
+
+DOOR_BOSS_TILE = [
+    "ssssssssssssssss",
+    "sdddddddddddddds",
+    "sdkddddddddddkds",
+    "sdddrddddddrddds",
+    "sddddrddddrdddds",
+    "sdddddrddrddddds",
+    "sddddddrrdddddds",
+    "sddddddrrdddddds",
+    "sdddddrddrddddds",
+    "sddddrddddrdddds",
+    "sdddrddddddrddds",
     "sdkddddddddddkds",
     "sdddddddddddddds",
     "sdddddddddddddds",
@@ -959,11 +1171,14 @@ SPRITE_DEFS = {
     "wall": (WALL_TILE, {"a": "#34343f", "m": "#1e1e26", "h": "#41414e"}),
     "wall2": (WALL_TILE_CRACKED, {"a": "#34343f", "m": "#1e1e26", "h": "#41414e",
                                    "k": "#26262e"}),
-    "stairs": (STAIRS_TILE, {"a": "#43434f", "1": "#606070", "2": "#4c4c5a",
-                              "3": "#3a3a46", "k": "#0a0a0e", "w": "#8fd9ef"}),
+    "stairs": (STAIRS_TILE, {"a": "#43434f", "d": "#23232b", "h": "#82828f",
+                              "1": "#6a6a7c", "2": "#4a4a58", "3": "#32323c",
+                              "g": "#17171d", "k": "#08080c", "w": "#8fd9ef"}),
     "door_rune": (DOOR_RUNE_TILE, {"s": "#5a5a68", "d": "#3b3b47",
                                     "D": "#32323d", "k": "#26262e",
                                     "r": "#e0a83a"}),
+    "door_boss": (DOOR_BOSS_TILE, {"s": "#5a3838", "d": "#3b2020",
+                                    "k": "#261515", "r": "#ff3b3b"}),
     "chest": (CHEST_TILE, {"a": "#43434f", "o": _o, "w": "#a06a32",
                             "b": "#7a4e24", "g": "#f2c94c"}),
     "lever_up": (LEVER_UP_TILE, {"a": "#43434f", "s": "#5a5a68",
@@ -1002,6 +1217,25 @@ SPRITE_DEFS = {
     "wyvern": (WYVERN, {"o": _o, "a": "#3f9e8f", "e": "#f0e040", "b": "#2c6e63"}),
     "lich": (MAGE, {"o": _o, "a": "#5e3a8a", "b": "#241640", "e": "#40e0d0",
                      "c": "#9a7ade"}),
+    # deep breeds (palette swaps of the shared body shapes - on-theme: the
+    # Well re-drafts the same shapes deeper and wronger)
+    "ghoul": (HUMANOID_BIG, {"o": _o, "a": "#a8b088", "e": "#e0e042", "f": "#6a7050"}),
+    "basilisk": (BEAST, {"o": _o, "a": "#7ab83a", "e": "#f0e040", "b": "#4c7a26"}),
+    "shade": (GHOST, {"o": _o, "a": "#3a3a52", "e": "#b060e0", "b": "#242438"}),
+    "grave_golem": (HUMANOID_BIG, {"o": _o, "a": "#6a6a78", "e": "#e0a83a", "f": "#3a6a45"}),
+    "void_weaver": (SPIDER, {"o": _o, "a": "#2c2440", "e": "#66d9ef"}),
+    "revenant": (SKELETON, {"o": _o, "a": "#b0a890", "e": "#e05050", "b": "#7a5a3a"}),
+    "chimera": (BEAST, {"o": _o, "a": "#b06a3a", "e": "#f0e040", "b": "#3f9e8f"}),
+    "barrow_king": (HUMANOID_BIG, {"o": _o, "a": "#8a8468", "e": "#e0c040", "f": "#caa53c"}),
+    "deep_wyrm": (WYVERN, {"o": _o, "a": "#4a6a8a", "e": "#8fd9ef", "b": "#32485e"}),
+    "archlich": (MAGE, {"o": _o, "a": "#2a2a30", "b": "#141418", "e": "#e0a83a",
+                         "c": "#caa53c"}),
+    # the Faceless One's "eyes" are the same color as its face - that IS the sprite
+    "faceless": (GHOST, {"o": _o, "a": "#d8d4c8", "e": "#d8d4c8", "b": "#b8b4a4"}),
+    "marrow_fiend": (BEAST, {"o": _o, "a": "#7a2a2a", "e": "#f0f0e0", "b": "#4c1a1a"}),
+    "grave_titan": (HUMANOID_BIG, {"o": _o, "a": "#4c4c58", "e": "#e05030", "f": "#2e2e38"}),
+    "unfinished": (UNFINISHED, {"o": _o, "a": "#b8bcd0", "e": "#14141a",
+                                 "f": "#9098b0", "x": "#66d9ef"}),
     # items
     "sword": (SWORD, {"o": _o, "w": "#f0f4fa", "s": "#c8d0dc", "g": "#caa53c",
                        "m": "#6a4a2a"}),
@@ -1020,6 +1254,13 @@ SPRITE_DEFS = {
     "decor_bones": (DECOR_BONES, {"w": "#c8c4b4"}),
     "decor_rubble": (DECOR_RUBBLE, {"r": "#55555f", "s": "#616170"}),
     "decor_moss": (DECOR_MOSS, {"m": "#3a6a45", "n": "#2c5236"}),
+}
+
+# One-time upscale pass: everything above is authored at 16x16; renderers
+# only ever see the 32x32 Scale2x results installed here.
+SPRITE_DEFS = {
+    key: (grid if key in NATIVE_32 else _scale2x(grid), palette)
+    for key, (grid, palette) in SPRITE_DEFS.items()
 }
 
 TRAP_KEYS = {
@@ -1044,6 +1285,20 @@ MONSTER_KEYS = {
     "Dark Knight": "knight",
     "Wyvern": "wyvern",
     "Lich": "lich",
+    "Ghoul": "ghoul",
+    "Basilisk": "basilisk",
+    "Shade": "shade",
+    "Grave Golem": "grave_golem",
+    "Void Weaver": "void_weaver",
+    "Revenant": "revenant",
+    "Chimera": "chimera",
+    "Barrow King": "barrow_king",
+    "Deep Wyrm": "deep_wyrm",
+    "Archlich": "archlich",
+    "Faceless One": "faceless",
+    "Marrow Fiend": "marrow_fiend",
+    "Grave Titan": "grave_titan",
+    "Unfinished One": "unfinished",
 }
 
 ITEM_KEYS = {
@@ -1060,6 +1315,7 @@ ITEM_KEYS = {
 # renderers (lever/plate pick their lit/pulled variant from puzzle state).
 PUZZLE_TILE_KEYS = {
     "+": "door_rune",
+    "=": "door_boss",
     "&": "chest",
     "L": "lever_up",
     "_": "plate_off",
@@ -1068,7 +1324,7 @@ PUZZLE_TILE_KEYS = {
 
 # Sprites that get a darkened "explored but not visible" variant.
 DIM_TILES = ("floor", "floor2", "floor3", "wall", "wall2", "stairs",
-             "door_rune", "chest", "lever_up", "lever_down",
+             "door_rune", "door_boss", "chest", "lever_up", "lever_down",
              "plate_off", "plate_on", "block", "rune_switch",
              "trap_spike", "trap_poison", "trap_teleport",
              "decor_bones", "decor_rubble", "decor_moss")

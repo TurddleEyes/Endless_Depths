@@ -1,6 +1,7 @@
 """Headless engine smoke test - no tkinter required. Run with:
     python3 scripts/smoke_test.py
 """
+import json
 import os
 import sys
 from collections import deque
@@ -8,6 +9,7 @@ from collections import deque
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from engine import constants as C
+from engine import bosses as boss_module
 from engine.dungeon import generate_floor, start_position
 from engine.fov import compute_fov
 from engine.items import generate_item
@@ -60,7 +62,202 @@ def test_boss_floor():
     rng = random.Random(7)
     boss_floor = generate_floor(C.BOSS_INTERVAL, rng)
     assert any(m.is_boss for m in boss_floor.monsters), "Expected a boss on a BOSS_INTERVAL floor"
-    print("OK: boss monster spawns on boss-interval floor")
+    assert boss_floor.boss_arena_sealed, "A boss floor with a boss must seal its arena"
+    sx, sy = boss_floor.stairs_pos
+    assert boss_floor.tiles[sy][sx] == C.TILE_BOSS_DOOR, "Arena door must sit on the stairs tile"
+    print("OK: boss monster spawns on boss-interval floor, arena door seals the stairs")
+
+
+def test_boss_ability_kits():
+    """Every one of the 12 boss kits, exercised directly (bypassing the
+    weighted random monster roll so rare-depth bosses like the Lich get
+    covered too): telegraphs an ability, resolves it next turn, and
+    escalates phases as HP drops past each threshold."""
+    import random
+    from engine.entities import MONSTER_TEMPLATES, Player, generate_boss_of
+
+    assert set(boss_module.BOSS_KITS) == {t[0] for t in MONSTER_TEMPLATES}, \
+        "Every monster template must have a boss kit"
+
+    # Every summon ability must name a REAL template: generate_monster_of
+    # silently falls back to MONSTER_TEMPLATES[0] (Rat) on an unknown name,
+    # which would turn a boss's signature summon into rats without any error.
+    template_names = {t[0] for t in MONSTER_TEMPLATES}
+    for name, kit in boss_module.BOSS_KITS.items():
+        for ability in kit.abilities:
+            if ability.kind == "summon":
+                assert ability.minion_name in template_names, \
+                    f"{name} boss kit summons unknown template {ability.minion_name!r}"
+
+    rng = random.Random(11)
+    floor = generate_floor(20, rng)
+    px, py = floor.rooms[0].center
+    player = Player(x=px, y=py, hp=10 ** 6, max_hp=10 ** 6)
+
+    for name, kit in boss_module.BOSS_KITS.items():
+        boss = generate_boss_of(name, 20, px, py)
+        boss.state = "chasing"
+        seen_kinds = set()
+        phases_seen = {1}
+        # Step HP through each phase threshold explicitly rather than a
+        # fixed per-turn drain: a self_heal ability (e.g. the Skeleton's)
+        # can restore more in one resolve than a small fixed attrition
+        # removes over the turns it takes to come off cooldown, which
+        # would mask real phase transitions behind a healing tug-of-war
+        # that has nothing to do with what this test is actually checking.
+        # Phases only ever escalate (see maybe_process_boss_turn), so a
+        # brief dip below a threshold sticks even if HP recovers after.
+        for frac in (1.0, 0.74, 0.49, 0.24):
+            boss.hp = max(1, round(boss.max_hp * frac))
+            for _ in range(20):
+                results = boss_module.maybe_process_boss_turn(boss, player, floor, rng)
+                for r in results:
+                    if r.kind == "phase":
+                        phases_seen.add(boss.boss_state["phase"])
+                    else:
+                        seen_kinds.add(r.kind)
+                if {"telegraph", "resolve"} <= seen_kinds:
+                    break
+        assert "telegraph" in seen_kinds and "resolve" in seen_kinds, \
+            f"{name} boss kit never telegraphed+resolved an ability"
+        assert len(phases_seen) >= 3, f"{name} boss kit never reached phase 3 (saw {phases_seen})"
+    print(f"OK: all {len(boss_module.BOSS_KITS)} boss kits telegraph, resolve, and escalate phases")
+
+
+def test_boss_fight_end_to_end():
+    """A full GameState boss encounter: sealed arena blocks the stairs,
+    bumping the sealed door refuses, fighting the boss produces telegraphed
+    abilities and (for summon-capable kits) real minions on the floor, and
+    killing it reopens the arena. Player HP is boosted for a controlled,
+    guaranteed-winnable scripted fight - this test is about the ENGINE
+    WIRING (door/minions/arena), not combat balance, so it deliberately
+    does not double as a replay-fidelity check (see test_boss_determinism
+    for that): a hand-set 10**6 HP is a direct mutation outside the
+    recorded-action system, which a real replay could never reproduce.
+    """
+    # Jump straight to a BOSS_INTERVAL floor across seeds until one has a
+    # summon-capable boss, so the minion-spawn path gets exercised too.
+    state = None
+    for seed in range(1, 200):
+        candidate = GameState(seed=seed)
+        candidate.depth = C.BOSS_INTERVAL
+        candidate._enter_floor(regenerate=True)
+        boss = next((m for m in candidate.floor.monsters if m.is_boss), None)
+        if boss is None:
+            continue
+        base = boss.name[:-5]
+        if any(a.kind == "summon" for a in boss_module.BOSS_KITS[base].abilities):
+            state = candidate
+            break
+    assert state is not None, "no seed produced a summon-capable boss in range"
+
+    boss = next(m for m in state.floor.monsters if m.is_boss)
+    sx, sy = state.floor.stairs_pos
+    assert state.floor.tiles[sy][sx] == C.TILE_BOSS_DOOR
+
+    # Bumping the sealed door must do nothing but log a refusal.
+    bump_key = _stand_beside_for_test(state, sx, sy)
+    log_len = len(state.log)
+    state.try_move_player(*bump_key)
+    assert state.floor.tiles[sy][sx] == C.TILE_BOSS_DOOR, "sealed door must not open on a bump"
+    assert not state.pending_puzzle, "the arena door is not a puzzle door"
+    assert len(state.log) > log_len
+
+    # Make the fight winnable-but-not-instant and watch it through: stand
+    # beside the boss, keep attacking, let monster-turn processing run its
+    # ability cycle. Calibrated off the boss's own stats so it survives
+    # ~15 hits - too high an attack (e.g. a flat huge number) can one-shot
+    # the boss before it ever gets a turn, which would mean no ability
+    # ever fires and this test would pass for the wrong reason.
+    state.floor.monsters[:] = [boss]
+    state.floor.traps.clear()
+    state.player.hp = state.player.max_hp = 10 ** 6
+    state.player.base_attack = boss.defense + max(3, boss.max_hp // 15)
+    attack_key = _stand_beside_for_test(state, boss.x, boss.y)
+
+    seen_events = set()
+    minions_seen = False
+    for _ in range(500):
+        if not boss.is_alive():
+            break
+        state.try_move_player(*attack_key)
+        for ev in state.take_events():
+            seen_events.add(ev["type"])
+        if len(state.floor.monsters) > 1:
+            minions_seen = True
+        # Re-aim at the boss each step in case a blink_strike moved it.
+        attack_key = _stand_beside_for_test(state, boss.x, boss.y)
+    assert not boss.is_alive(), "boss should have died within 500 scripted turns"
+    assert "boss_telegraph" in seen_events, "expected at least one telegraphed ability"
+    assert minions_seen, "expected the summon-capable boss to actually spawn minions"
+    assert state.floor.tiles[sy][sx] == C.TILE_STAIRS, "arena must reopen once the boss falls"
+    assert not state.floor.boss_arena_sealed
+    print(f"OK: boss fight end-to-end (seed {state.seed}) - sealed arena, door refuses "
+          f"a bump, telegraphed abilities, minion summons, arena reopens on death")
+
+
+def test_boss_determinism():
+    """Same seed, same sequence of turn-rng calls -> the exact same boss
+    ability sequence, every time. maybe_process_boss_turn's only
+    randomness sources are the rng argument (ability tie-breaks,
+    blink_strike's landing tile) - this proves there's no other hidden
+    source, which is what actually keeps a real boss fight replay-safe
+    (mirrors test_puzzle_and_chest_determinism's same-seed-same-result
+    shape rather than the full record/replay machinery, since a
+    controlled test fight needs boosted player HP - a direct mutation a
+    real replay could never reproduce)."""
+    import random
+    from engine.entities import Player
+
+    def run(seed):
+        rng = random.Random(seed)
+        floor = generate_floor(C.BOSS_INTERVAL, rng)
+        boss = next(m for m in floor.monsters if m.is_boss)
+        boss.state = "chasing"
+        player = Player(x=boss.x, y=max(0, boss.y - 1), hp=10 ** 6, max_hp=10 ** 6)
+        turn_rng = random.Random(seed * 7919 + 1)
+        log = []
+        for _ in range(60):
+            results = boss_module.maybe_process_boss_turn(boss, player, floor, turn_rng)
+            log.append([(r.kind, r.message, r.damage, r.heal, r.minion_count) for r in results])
+            boss.hp = max(1, boss.hp - max(1, boss.max_hp // 30))
+        return log
+
+    a, b = run(2026), run(2026)
+    assert a == b, "identical seeds must produce an identical boss ability sequence"
+    assert any(step for step in a), "expected at least some ability activity across 60 turns"
+    print("OK: boss ability sequences are fully deterministic given the same rng stream")
+
+
+def _stand_beside_for_test(state, tx, ty):
+    """Move the player to a walkable tile adjacent to (tx, ty) and return
+    the (dx, dy) that bumps back into it. Used only by boss-fight tests."""
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        sx, sy = tx + dx, ty + dy
+        if state.floor.is_walkable(sx, sy):
+            state.player.x, state.player.y = sx, sy
+            return (-dx, -dy)
+    raise AssertionError(f"no walkable tile adjacent to ({tx}, {ty})")
+
+
+def test_deep_monster_variety():
+    """The deep roster keeps refreshing: hardcore players at floor 100+
+    must keep meeting breeds that unlocked recently, not grind the same
+    twelve shallow monsters forever."""
+    import random
+    from engine.entities import MONSTER_TEMPLATES
+    rng = random.Random(4321)
+    by_name = {t[0]: t for t in MONSTER_TEMPLATES}
+    for depth in (40, 70, 100):
+        names = {generate_monster(depth, rng, 0, 0).name for _ in range(300)}
+        assert len(names) >= 8, f"depth {depth}: only {len(names)} distinct breeds"
+        newest_seen = max(by_name[n][7] for n in names)
+        assert newest_seen >= depth - 25, \
+            f"depth {depth}: newest breed seen unlocked at {newest_seen} - roster is stale"
+    deepest_unlock = max(t[7] for t in MONSTER_TEMPLATES)
+    assert deepest_unlock >= 90, "the roster should keep unlocking near floor 100"
+    print(f"OK: deep floors keep unlocking new breeds "
+          f"({len(MONSTER_TEMPLATES)} templates, deepest unlock at floor {deepest_unlock})")
 
 
 def test_fov_blocks_through_walls():
@@ -638,7 +835,16 @@ def _state_fingerprint(state):
         "pos": (state.player.x, state.player.y),
         "inventory": [item_key(i) for i in state.player.inventory],
         "tiles": ["".join(r) for r in state.floor.tiles],
-        "monsters": sorted((m.x, m.y, m.hp, m.name) for m in state.floor.monsters),
+        # boss_state (phase, cooldowns, pending ability, buffs) is plain
+        # JSON-able data - fold it in as a sorted-key string so two
+        # semantically-identical dicts always compare equal regardless of
+        # insertion order, and so it can never break sorted()'s tuple
+        # comparison (x, y already make every monster tuple unique, but a
+        # bare dict as a tuple element isn't safely comparable in general).
+        "monsters": sorted((m.x, m.y, m.hp, m.name,
+                            json.dumps(m.boss_state, sort_keys=True) if m.is_boss else "")
+                           for m in state.floor.monsters),
+        "boss_arena_sealed": state.floor.boss_arena_sealed,
         "chests": sorted((c.x, c.y, c.kind, c.gold,
                           tuple(i.name for i in c.items))
                          for c in state.floor.chests),
@@ -960,6 +1166,10 @@ if __name__ == "__main__":
     test_generation_and_connectivity()
     test_shop_intervals()
     test_boss_floor()
+    test_boss_ability_kits()
+    test_boss_fight_end_to_end()
+    test_boss_determinism()
+    test_deep_monster_variety()
     test_fov_blocks_through_walls()
     test_item_scaling()
     test_monster_scaling()

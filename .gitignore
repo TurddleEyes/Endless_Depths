@@ -12,3 +12,7 @@ highscores.json
 
 # itch.io packaging output (scripts/build_itch_zip.sh) - zip + staging dir
 /dist/
+
+# Private lore canon and ARG masters - never publish (the repo is public,
+# and a mystery box dies the day its answers are readable on GitHub)
+/lore/

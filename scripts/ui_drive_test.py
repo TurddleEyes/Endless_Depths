@@ -29,10 +29,25 @@ save_module.HIGHSCORE_PATH = os.path.join(_tmp, "highscores.json")
 save_module.SPEEDRUN_SCORE_PATH = os.path.join(_tmp, "speedrun.json")
 save_module.SETTINGS_PATH = os.path.join(_tmp, "settings.json")
 
+# Texture-pack override: a tiny pack (one marker-colored rat + a bad file)
+# proves ui/sprites.py prefers pack PNGs and survives invalid ones. Must be
+# in place BEFORE ui.app imports ui.sprites (the pack loads at import).
+from ui import texturepack as TP  # noqa: E402
+
+_pack_dir = os.path.join(_tmp, "textures")
+os.makedirs(os.path.join(_pack_dir, "monsters"))
+RAT_MARKER = "#aa00aa"
+_marker_rows = [[(0xAA, 0x00, 0xAA, 255)] * 32 for _ in range(32)]
+with open(os.path.join(_pack_dir, "monsters", "rat.png"), "wb") as f:
+    f.write(TP.encode_png(_marker_rows))
+with open(os.path.join(_pack_dir, "monsters", "orc.png"), "wb") as f:
+    f.write(b"definitely not a png")
+os.environ[TP.PACK_ENV] = _pack_dir
+
 from engine import constants as C  # noqa: E402
 from engine import puzzles as puzzle_module  # noqa: E402
 from engine.dungeon import GroundItem  # noqa: E402
-from engine.entities import make_mimic  # noqa: E402
+from engine.entities import generate_monster_of, make_mimic  # noqa: E402
 from engine.items import generate_item, make_key  # noqa: E402
 from ui.app import App  # noqa: E402
 
@@ -96,6 +111,44 @@ app.seed_entry.insert(0, "42")
 app._start_new_game()
 assert app.mode == "play" and app.state is not None and app.state.seed == 42
 print("OK: boots through lore/title into a seeded run")
+
+# ----------------------------------------------------------------------
+# Texture pack: the marker-colored rat.png overrides the built-in art;
+# the corrupt orc.png was skipped with a warning and orc kept code-art.
+# ----------------------------------------------------------------------
+from ui import sprites as sprites_module  # noqa: E402
+
+rat_colors = set(app.sprites["rat"].pixels.values())
+assert rat_colors == {RAT_MARKER}, f"rat should be all {RAT_MARKER}, got {rat_colors}"
+orc_colors = set(app.sprites["orc"].pixels.values())
+assert RAT_MARKER not in orc_colors and orc_colors, "orc must keep built-in art"
+assert any("orc.png" in w for w in sprites_module._PACK_WARNINGS), \
+    "corrupt pack file should be warned about"
+
+# Hero slot remap on the pack path: inject a pack hero base (the default
+# art, via the pack pipeline) and check armor/rarity/poison recolors.
+sprites_module._PACK_HERO["base"] = TP.grid_to_px(
+    sprites_module._scale2x(sprites_module.HERO_BASE),
+    sprites_module.PLAYER_PALETTE)
+_hero_img = sprites_module.build_hero(weapon="sword", armor="plate",
+                                       poisoned=True, weapon_rarity="legendary",
+                                       zoom=1)
+_hero_colors = set(_hero_img.pixels.values())
+assert sprites_module.ARMOR_TUNIC_COLORS["plate"] in _hero_colors, "tunic slot not remapped"
+assert sprites_module.ARMOR_TUNIC_COLORS["none"] not in _hero_colors, "default tunic remains"
+assert sprites_module.BLADE_RARITY_COLORS["legendary"] in _hero_colors, "blade slot not remapped"
+assert sprites_module.POISONED_SKIN in _hero_colors, "poison skin not remapped"
+sprites_module._PACK_HERO["base"] = None  # back to built-in hero for the rest
+
+# Facing follows the movement keys and the hero sprite cache keys on it.
+for keysym, expected in (("Left", "left"), ("Up", "up"),
+                          ("Right", "right"), ("Down", "down")):
+    key(app, keysym)
+    assert app.hero_facing == expected, f"{keysym} -> {app.hero_facing}"
+    assert app._hero_sprite() is not None
+assert len({k[-1] for k in app._hero_cache}) >= 4, "one cached pose per facing"
+print("OK: texture pack overrides rat, hero slots recolor, facing follows "
+      "movement, corrupt file falls back with a warning")
 
 # ----------------------------------------------------------------------
 # Movement, inventory, settings
@@ -212,6 +265,37 @@ for kind in ("plates", "lever_order", "push_block"):
             row[x] = False
     app._render()
 
+# Boss arena: sealed door tile, boss nameplate/HP bar, arena reopening.
+# clear_hazards() wipes ALL monsters, so grab the boss reference first and
+# keep only it (mirroring how the analogous smoke_test.py check does it).
+assert skim_to(state, lambda f: any(m.is_boss for m in f.monsters))
+boss = next(m for m in state.floor.monsters if m.is_boss)
+state.floor.traps.clear()
+state.player.hp = state.player.max_hp = 10 ** 6
+state.player.status_effects.clear()
+state.floor.monsters[:] = [boss]
+sx, sy = state.floor.stairs_pos
+assert state.floor.tiles[sy][sx] == C.TILE_BOSS_DOOR
+reveal_map(state)
+app._render()
+assert app.boss_name_label.packed and app.boss_bar.packed, \
+    "boss nameplate must show while a boss is alive"
+assert app.boss_name_label.cget("text"), "boss nameplate must show a name/phase"
+# dim pass: explored but not visible
+for row in state.floor.visible:
+    for x in range(len(row)):
+        row[x] = False
+app._render()
+# Kill it outright and confirm both the UI and the arena door react.
+boss.hp = 0
+state._kill_monster(boss)
+app._render()
+assert not app.boss_name_label.packed and not app.boss_bar.packed, \
+    "boss nameplate must hide once the boss is dead"
+assert state.floor.tiles[sy][sx] == C.TILE_STAIRS, "arena must reopen once the boss falls"
+print("OK: boss arena renders (sealed door, nameplate/HP bar lit + dim, "
+      "nameplate hides and door reopens on death)")
+
 # Chest + mimic + key item on one visible floor.
 assert skim_to(state, lambda f: bool(f.chests))
 clear_hazards(state)
@@ -220,6 +304,14 @@ spot = next((px + dx, py + dy) for dx, dy in DIR_KEY
             if state.floor.is_walkable(px + dx, py + dy))
 state.floor.monsters.append(make_mimic(state.depth, *spot))
 state.floor.ground_items.append(GroundItem(px, py, make_key("Iron Key")))
+# Plant a few deep breeds too, so their tk sprites get drawn at least once.
+deep_spots = [(x, y) for y in range(state.floor.height)
+              for x in range(state.floor.width)
+              if state.floor.is_walkable(x, y) and state.floor.monster_at(x, y) is None
+              and (x, y) != (px, py)][:4]
+for name, (dx, dy) in zip(("Ghoul", "Void Weaver", "Grave Titan", "Unfinished One"),
+                          deep_spots):
+    state.floor.monsters.append(generate_monster_of(name, state.depth, dx, dy))
 reveal_map(state)
 app._render()
 drawn = app.minimap.drawn

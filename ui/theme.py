@@ -1,6 +1,6 @@
 """Pure presentation constants for the tkinter UI - no widgets created here."""
 
-TILE_SIZE = 32          # must be a multiple of sprites.SPRITE_PX (16)
+TILE_SIZE = 32          # must be a multiple of sprites.SPRITE_PX (32)
 VIEWPORT_COLS = 26
 VIEWPORT_ROWS = 16
 

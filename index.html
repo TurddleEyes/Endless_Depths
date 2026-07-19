@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Endless Depths</title>
-<link rel="stylesheet" href="web/style.css?v=5">
+<link rel="stylesheet" href="web/style.css?v=12">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128481;</text></svg>">
 </head>
 <body>
@@ -12,28 +12,34 @@
 
   <div id="gamepad-badge"></div>
 
-  <!-- Title screen -->
+  <!-- Title screen: the mouth of the Well -->
   <div id="title-screen" class="screen">
-    <h1 id="game-title">ENDLESS DEPTHS</h1>
-    <p class="subtitle" id="title-tagline">An infinite dungeon roguelike</p>
-    <canvas id="title-hero" width="128" height="128"></canvas>
-    <div id="title-monsters"></div>
-    <div id="loading-status">Loading Python engine&hellip;</div>
-    <div id="title-buttons" class="hidden">
-      <div id="seed-row">
-        <label for="seed-input">Seed (optional):</label>
-        <input id="seed-input" type="text" inputmode="numeric" placeholder="random">
-      </div>
-      <button id="btn-new">New Game (N)</button>
-      <button id="btn-speedrun">Speedrun to Floor 100 (R)</button>
-      <button id="btn-continue" disabled>Continue (C)</button>
-      <button id="btn-watch">Watch Replay (V)</button>
-      <button id="btn-lore">Lore (L)</button>
-      <button id="btn-settings">Settings (O)</button>
+    <div class="well-motes" aria-hidden="true">
+      <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
     </div>
-    <div id="title-scores-row">
-      <pre id="title-highscores"></pre>
-      <pre id="title-speedrun-scores"></pre>
+    <canvas id="title-hero" width="128" height="128"></canvas>
+    <div id="title-content">
+      <h1 id="game-title">ENDLESS DEPTHS</h1>
+      <p class="subtitle" id="title-tagline">An infinite dungeon roguelike</p>
+      <div id="title-monsters"></div>
+      <div id="loading-status">Loading Python engine&hellip;</div>
+      <div id="title-buttons" class="hidden">
+        <div id="seed-row">
+          <label for="seed-input">Whisper a number:</label>
+          <input id="seed-input" type="text" inputmode="numeric" placeholder="random"
+                 title="Seed - the same number always builds the same dungeon">
+        </div>
+        <button id="btn-new" class="menu-btn primary" data-icon="sword"><span class="label">New Game</span><kbd>N</kbd></button>
+        <button id="btn-speedrun" class="menu-btn" data-icon="hourglass"><span class="label">Speedrun to Floor 100</span><kbd>R</kbd></button>
+        <button id="btn-continue" class="menu-btn" data-icon="ghost" disabled><span class="label">Continue</span><kbd>C</kbd></button>
+        <button id="btn-watch" class="menu-btn" data-icon="play"><span class="label">Watch Replay</span><kbd>V</kbd></button>
+        <button id="btn-lore" class="menu-btn" data-icon="book"><span class="label">Lore</span><kbd>L</kbd></button>
+        <button id="btn-settings" class="menu-btn" data-icon="gear"><span class="label">Settings</span><kbd>O</kbd></button>
+      </div>
+      <div id="title-scores-row">
+        <pre id="title-highscores"></pre>
+        <pre id="title-speedrun-scores"></pre>
+      </div>
     </div>
   </div>
 
@@ -77,6 +83,10 @@
         <div id="stat-seed" class="seed" title="Click to copy">Seed: -</div>
         <div class="bar"><div id="hp-fill" class="bar-fill hp"></div><span id="hp-text"></span></div>
         <div class="bar thin"><div id="xp-fill" class="bar-fill xp"></div></div>
+        <div id="boss-nameplate" class="hidden">
+          <div id="boss-name"></div>
+          <div class="bar boss"><div id="boss-fill" class="bar-fill boss"></div><span id="boss-text"></span></div>
+        </div>
         <div id="stat-status">Status: Healthy</div>
         <div id="stat-attack">Attack: 0</div>
         <div id="stat-defense">Defense: 0</div>
@@ -215,6 +225,6 @@
 
 </div>
 <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
-<script src="web/main.js?v=5"></script>
+<script src="web/main.js?v=12"></script>
 </body>
 </html>

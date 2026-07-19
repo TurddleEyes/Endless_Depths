@@ -27,6 +27,7 @@ TILE_FLOOR = "."
 TILE_STAIRS = ">"
 TILE_SHOPKEEPER = "$"
 TILE_DOOR = "+"    # sealed rune door; sits on the stairs tile of puzzle floors
+TILE_BOSS_DOOR = "=" # sealed arena door; sits on the stairs tile of boss floors
 TILE_CHEST = "&"   # closed chest (every kind looks identical - mimics included)
 TILE_LEVER = "L"   # bump-interactable puzzle lever
 TILE_PLATE = "_"   # walkable pressure plate (lit state lives in the puzzle)
@@ -35,7 +36,7 @@ TILE_BLOCK = "B"   # pushable block
 # Tiles that block movement and pathing. Interactables (door, chest, lever,
 # block) are solid so the player triggers them by bumping, exactly like the
 # shopkeeper - and monsters route around them.
-SOLID_TILES = (TILE_WALL, TILE_SHOPKEEPER, TILE_DOOR, TILE_CHEST,
+SOLID_TILES = (TILE_WALL, TILE_SHOPKEEPER, TILE_DOOR, TILE_BOSS_DOOR, TILE_CHEST,
                TILE_LEVER, TILE_BLOCK)
 
 # --- Puzzles ---------------------------------------------------------------

@@ -13,9 +13,10 @@ import random
 from collections import deque
 
 from . import constants as C
+from . import bosses as boss_module
 from .combat import resolve_attack
 from .dungeon import generate_floor, start_position, Chest, GroundItem
-from .entities import Player, generate_monster, make_mimic
+from .entities import Player, generate_monster, generate_monster_of, make_mimic
 from .fov import compute_fov
 from .items import generate_item, use_item as apply_item_effect
 from . import puzzles as puzzle_module
@@ -140,6 +141,9 @@ class GameState:
             return
         if tile == C.TILE_DOOR:
             self._bump_door()
+            return
+        if tile == C.TILE_BOSS_DOOR:
+            self._bump_boss_door()
             return
         if tile == C.TILE_LEVER:
             self._pull_lever(nx, ny)
@@ -290,7 +294,8 @@ class GameState:
 
     def _player_attack(self, monster):
         damage, crit, msg = resolve_attack(
-            "You", monster.name, self.player.attack_power, monster.defense, self.rng
+            "You", monster.name, self.player.attack_power,
+            boss_module.effective_defense(monster), self.rng
         )
         monster.hp -= damage
         self._log(msg)
@@ -305,6 +310,12 @@ class GameState:
         self._log(f"You defeated the {monster.name}! (+{monster.xp_reward} XP, +{monster.gold_reward} gold)")
         self.player.gold += monster.gold_reward
         self._emit("kill", x=monster.x, y=monster.y, boss=monster.is_boss)
+        if monster.is_boss and self.floor.boss_arena_sealed:
+            self.floor.boss_arena_sealed = False
+            sx, sy = self.floor.stairs_pos
+            self._set_tile(sx, sy, C.TILE_STAIRS)
+            self._log("The rune seal shatters - the way down stands open!")
+            self._emit("boss_arena_open", x=sx, y=sy)
         levelup_msgs = self.player.gain_xp(monster.xp_reward)
         for m in levelup_msgs:
             self._log(m)
@@ -449,6 +460,10 @@ class GameState:
         """Walk away from the door; the puzzle keeps its state."""
         self._record("q")
         self.pending_puzzle = False
+
+    def _bump_boss_door(self):
+        self._log("The seal will not break while the guardian still breathes.")
+        self._emit("boss_door_sealed")
 
     def _bump_door(self):
         puzzle = self.floor.puzzle
@@ -629,6 +644,16 @@ class GameState:
             if floor.visible[m.y][m.x] or dist <= 1:
                 m.state = "chasing"
 
+            if m.is_boss:
+                turn_consumed = False
+                for result in boss_module.maybe_process_boss_turn(m, player, floor, self.rng):
+                    if self._apply_boss_result(m, result):
+                        turn_consumed = True
+                if self.game_over:
+                    return
+                if turn_consumed:
+                    continue
+
             if m.state != "chasing":
                 if self.rng.random() < 0.3:
                     self._wander(m, occupied)
@@ -636,11 +661,12 @@ class GameState:
 
             if dist <= 1:
                 damage, crit, msg = resolve_attack(
-                    m.name, "you", m.attack, player.defense_power, self.rng
+                    m.name, "you", boss_module.effective_attack(m), player.defense_power, self.rng
                 )
                 player.hp -= damage
                 self._log(msg)
-                self._emit("player_hit", dmg=damage, crit=crit)
+                # x/y = the attacker, so renderers can play a lunge from it.
+                self._emit("player_hit", dmg=damage, crit=crit, x=m.x, y=m.y)
                 if "Spider" in m.name and self.rng.random() < 0.2:
                     self._apply_poison(dmg=max(1, 1 + self.depth // 8))
                     self._log("The spider's venom seeps into the wound!")
@@ -654,6 +680,45 @@ class GameState:
             if step:
                 m.x, m.y = step
             occupied.add((m.x, m.y))
+
+    def _apply_boss_result(self, monster, result) -> bool:
+        """Applies one BossTurnResult from engine/bosses.py. Returns True if
+        it consumed the boss's turn (telegraph/resolve), False if it's just
+        an incidental phase-change notice (chase/melee still follow)."""
+        self._log(result.message)
+        if result.event:
+            self._emit(result.event, x=monster.x, y=monster.y,
+                       ability=result.ability_kind)
+        if result.kind == "phase":
+            return False
+        if result.damage:
+            self.player.hp -= result.damage
+            self._emit("player_hit", dmg=result.damage, crit=False,
+                       x=monster.x, y=monster.y)
+            if self.player.hp <= 0:
+                self._die()
+                return True
+        if result.poison:
+            self._apply_poison(dmg=max(1, 1 + self.depth // 8))
+        if result.minion_count:
+            self._spawn_boss_minions(monster, result.minion_name, result.minion_count)
+        return True
+
+    def _spawn_boss_minions(self, boss, minion_name: str, count: int):
+        floor = self.floor
+        bx, by = boss.x, boss.y
+        candidates = [
+            (x, y)
+            for y in range(max(0, by - 3), min(floor.height, by + 4))
+            for x in range(max(0, bx - 3), min(floor.width, bx + 4))
+            if floor.is_walkable(x, y) and floor.monster_at(x, y) is None
+            and (x, y) != (self.player.x, self.player.y)
+        ]
+        self.rng.shuffle(candidates)
+        for x, y in candidates[:count]:
+            minion = generate_monster_of(minion_name, self.depth, x, y)
+            minion.state = "chasing"
+            floor.monsters.append(minion)
 
     def _wander(self, monster, occupied):
         floor = self.floor

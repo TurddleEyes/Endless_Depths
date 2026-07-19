@@ -19,7 +19,7 @@ from .world import GameState
 # Bump whenever engine generation/logic changes in a way that would make
 # previously recorded replays play back differently - old replays are then
 # cleanly rejected instead of silently desyncing.
-REPLAY_VERSION = 4
+REPLAY_VERSION = 5
 
 
 def build_replay_dict(state: GameState, elapsed_seconds: float) -> dict:

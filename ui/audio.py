@@ -131,6 +131,43 @@ def _sfx_boss_kill():
     return b
 
 
+def _sfx_boss_telegraph():
+    """A rising, dissonant warning - the boss winds up for something big.
+    Gives the player a distinct "incoming" cue to react to before it lands."""
+    b = Buffer(0.5)
+    b.tone(0, 0.4, 90, 0.18, "saw", sweep=1.8, duty=0.3)
+    b.tone(0.1, 0.3, 95, 0.14, "square", sweep=1.5)
+    b.tone(0.35, 0.1, 0, 0.12, "noise", seed=71)
+    return b
+
+
+def _sfx_boss_phase():
+    """A dark descending sting marking a boss phase transition (enrage)."""
+    b = Buffer(0.7)
+    for i, note in enumerate((57, 54, 50)):
+        b.tone(i * 0.14, 0.3, _midi(note), 0.22, "saw", duty=0.4)
+    b.tone(0, 0.5, 0, 0.16, "noise", seed=73)
+    b.tone(0.4, 0.3, _midi(38), 0.2, "square", sweep=-0.4)
+    return b
+
+
+def _sfx_boss_ability():
+    """Generic resolve cue for a non-damage boss ability (heal/buff/blink);
+    damage-dealing abilities also trigger the normal player_hurt sound."""
+    b = Buffer(0.35)
+    b.tone(0, 0.25, 280, 0.2, "triangle", sweep=-0.8)
+    b.tone(0.05, 0.15, 0, 0.12, "noise", seed=79)
+    return b
+
+
+def _sfx_boss_ability_miss():
+    """A light whiff - the player dodged clear of an aoe/poison/bolt."""
+    b = Buffer(0.25)
+    b.tone(0, 0.18, 500, 0.14, "sine", sweep=2.5)
+    b.tone(0, 0.06, 0, 0.08, "noise", seed=83)
+    return b
+
+
 def _sfx_levelup():
     b = Buffer(0.6)
     for i, note in enumerate((72, 76, 79, 84)):
@@ -385,6 +422,10 @@ SFX_BUILDERS = {
     "player_hurt": _sfx_player_hurt,
     "kill": _sfx_kill,
     "boss_kill": _sfx_boss_kill,
+    "boss_telegraph": _sfx_boss_telegraph,
+    "boss_phase": _sfx_boss_phase,
+    "boss_ability": _sfx_boss_ability,
+    "boss_ability_miss": _sfx_boss_ability_miss,
     "levelup": _sfx_levelup,
     "gold": _sfx_gold,
     "pickup": _sfx_pickup,
