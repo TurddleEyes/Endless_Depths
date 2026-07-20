@@ -10,6 +10,7 @@ to the generated art.
 """
 from __future__ import annotations
 
+import os
 import sys
 
 import tkinter as tk
@@ -45,6 +46,73 @@ def _build_image(grid, palette, zoom: int) -> tk.PhotoImage:
     if zoom > 1:
         img = img.zoom(zoom, zoom)
     return img
+
+
+def _photoimage_from_rows(rows) -> tk.PhotoImage:
+    """PhotoImage from arbitrary (non-square, unlike _build_image_px)
+    RGBA pixel rows - used for static art (title screen scene/logo/icons)
+    rather than the fixed-size sprite atlas."""
+    h = len(rows)
+    w = len(rows[0]) if h else 0
+    img = tk.PhotoImage(width=max(1, w), height=max(1, h))
+    for y, row in enumerate(rows):
+        x = 0
+        while x < w:
+            if row[x][3] < 128:
+                x += 1
+                continue
+            x0 = x
+            run = []
+            while x < w and row[x][3] >= 128:
+                r, g, b, _a = row[x]
+                run.append(f"#{r:02x}{g:02x}{b:02x}")
+                x += 1
+            img.put("{" + " ".join(run) + "}", to=(x0, y))
+    return img
+
+
+_TITLE_ASSET_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
+
+
+def load_static_png(name: str, target_w=None, target_h=None) -> tk.PhotoImage:
+    """Load a PNG from web/ (title_bg.png etc.), optionally nearest-neighbor
+    resized first. Static art, not part of the sprite atlas or texture pack."""
+    with open(os.path.join(_TITLE_ASSET_DIR, name), "rb") as f:
+        rows = TP.decode_png(f.read())
+    if target_w and target_h and (target_w != len(rows[0]) or target_h != len(rows)):
+        rows = TP.resample_nn(rows, target_w, target_h)
+    return _photoimage_from_rows(rows)
+
+
+def load_icon_strip(name: str, count: int) -> list:
+    """A horizontal strip of `count` equal-width square icons -> a list of
+    individually addressable PhotoImages (title_icons.png -> 6 icons)."""
+    with open(os.path.join(_TITLE_ASSET_DIR, name), "rb") as f:
+        rows = TP.decode_png(f.read())
+    cell = len(rows) if len(rows) else 1  # icons are square: cell = height
+    return [_photoimage_from_rows([row[i * cell:(i + 1) * cell] for row in rows])
+            for i in range(count)]
+
+
+def _sprite_rows(key: str):
+    """Current pixel rows for a sprite key, honoring a texture pack
+    override if one is loaded - the single source of truth build_sprite()
+    and build_sprite_centered() both draw from."""
+    pack = _PACK_SPRITES.get(key)
+    if pack is not None:
+        return pack
+    grid, palette = SPRITE_DEFS[key]
+    return TP.grid_to_px(grid, palette)
+
+
+def build_sprite_centered(key: str, box: int, pad: int = 4) -> tk.PhotoImage:
+    """A sprite cropped to its opaque silhouette and centered in a box x box
+    box - unlike build_sprite(), immune to each creature's own baked-in
+    padding asymmetry (see texturepack.fit_centered_px). For lineups like
+    the title screen's monster row."""
+    fitted = TP.fit_centered_px(_sprite_rows(key), box, box, pad)
+    return _photoimage_from_rows(fitted)
 
 
 def _build_image_px(rows, zoom: int) -> tk.PhotoImage:

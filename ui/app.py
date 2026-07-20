@@ -125,75 +125,176 @@ class App(tk.Tk):
     # ------------------------------------------------------------------
     # Screen construction
     # ------------------------------------------------------------------
-    def _build_title_screen(self):
-        self.title_frame = tk.Frame(self, bg=T.BG, width=880, height=800)
-        self.title_frame.pack_propagate(False)
+    # The dungeon-scene title screen: a Canvas painted with the same
+    # generated art as the browser build (scripts/build_title_scene.py),
+    # with the interactive bits (buttons, seed entry, score text) embedded
+    # as real widgets via create_window so their existing update logic
+    # elsewhere in this class (_show_title, _title_tick, _on_key) needs no
+    # changes - only how they're positioned changes, not how they behave.
+    #
+    # Total content (background + menu + score panels) runs taller than a
+    # lot of screens, and unlike a browser page a tk window does not
+    # scroll on its own - the VISIBLE canvas is capped at TITLE_VIEW_H and
+    # wrapped in a scrollbar (+ mouse wheel) so the window itself always
+    # stays a fixed, on-screen, draggable size no matter how tall the
+    # content or how short the user's display is.
+    TITLE_W = 860
+    TITLE_BG_H = 564          # 336 * (860/512), background's own aspect ratio
+    TITLE_VIEW_H = 780        # fixed window viewport - scroll for the rest;
+                              # tall enough that "New Game" needs no scrolling
 
-        self.title_label = tk.Label(self.title_frame, text="ENDLESS DEPTHS",
-                                      font=T.TITLE_FONT, bg=T.BG, fg=T.ACCENT)
-        self.title_label.pack(pady=(18, 4))
+    def _build_title_screen(self):
+        self.title_frame = tk.Frame(self, bg=T.BG)
+        viewport = tk.Frame(self.title_frame, bg=T.BG)
+        viewport.pack()
+        canvas = tk.Canvas(viewport, width=self.TITLE_W, height=self.TITLE_VIEW_H,
+                            bg=T.BG, highlightthickness=0)
+        scrollbar = tk.Scrollbar(viewport, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left")
+        scrollbar.pack(side="left", fill="y")
+        canvas.bind("<Enter>", lambda e: self._bind_title_scroll())
+        canvas.bind("<Leave>", lambda e: self._unbind_title_scroll())
+        self.title_canvas = canvas
+
+        self._title_bg_img = sprite_defs.load_static_png(
+            "title_bg.png", self.TITLE_W, self.TITLE_BG_H)
+        self._title_logo_img = sprite_defs.load_static_png("title_logo.png")  # native 555x60
+        self._title_icon_imgs = sprite_defs.load_icon_strip("title_icons.png", 6)
+
+        canvas.create_image(0, 0, anchor="nw", image=self._title_bg_img)
+        canvas.create_image(self.TITLE_W // 2, 26, anchor="n", image=self._title_logo_img)
+
+        # The hero stands in the scene, bottom-left - a decoration now,
+        # not part of the vertical flow (matches the web title screen).
+        hero_y = self.TITLE_BG_H - self.big_hero.height() - 14
+        canvas.create_image(16, hero_y, anchor="nw", image=self.big_hero)
+
+        y = self.TITLE_BG_H + 14
         self.tagline_label = tk.Label(self.title_frame, text=lore_data.TAGLINES[0],
                                         font=T.UI_FONT, bg=T.BG, fg=T.TEXT_DIM)
-        self.tagline_label.pack(pady=(0, 8))
+        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=self.tagline_label)
+        y += 24
 
-        tk.Label(self.title_frame, image=self.big_hero, bg=T.BG).pack(pady=(0, 2))
-
-        # A lineup of the things waiting below - pure flavor.
-        monster_row = tk.Frame(self.title_frame, bg=T.BG)
-        monster_row.pack(pady=(0, 8))
+        # A lineup of the things waiting below - pure flavor. Each portrait
+        # is cropped to its own silhouette and centered (build_sprite_centered)
+        # rather than stretching its full, unevenly-padded source canvas -
+        # otherwise creatures land at inconsistent positions/sizes side by
+        # side (see ui/texturepack.py:fit_centered_px).
+        monster_keys = ("rat", "goblin", "skeleton", "wraith", "knight", "lich")
+        card, gap = 60, 8
+        row_w = len(monster_keys) * card + (len(monster_keys) - 1) * gap
+        mx = (self.TITLE_W - row_w) // 2
         self._title_monster_imgs = []
-        for key in ("rat", "goblin", "skeleton", "wraith", "knight", "lich"):
-            img = sprite_defs.build_sprite(key, zoom=2)  # 32px grid x2 = 64px
+        for key in monster_keys:
+            canvas.create_rectangle(mx, y, mx + card, y + card,
+                                     fill="#0a0a0e", outline=T.PANEL_BORDER)
+            img = sprite_defs.build_sprite_centered(key, card - 6, pad=2)
             self._title_monster_imgs.append(img)  # keep refs or tk drops them
-            tk.Label(monster_row, image=img, bg=T.BG).pack(side="left", padx=6)
+            canvas.create_image(mx + card // 2, y + card // 2, image=img)
+            mx += card + gap
+        y += card + 16
 
-        btn_style = dict(font=T.UI_FONT_BOLD, width=22, bg=T.PANEL_BG, fg=T.TEXT_MAIN,
+        # NOTE: once a Button has image=, Tk reinterprets width= as PIXELS
+        # instead of characters (text-only buttons elsewhere in this file
+        # correctly use character widths - only these icon buttons need
+        # pixel widths). Sized to comfortably fit "Speedrun to Floor 100 (R)".
+        btn_style = dict(font=T.UI_FONT_BOLD, width=320, bg=T.PANEL_BG, fg=T.TEXT_MAIN,
                           activebackground=T.ACCENT, activeforeground=T.BG,
                           relief="flat", bd=0, highlightthickness=1,
-                          highlightbackground=T.PANEL_BORDER)
+                          highlightbackground=T.PANEL_BORDER, compound="left",
+                          anchor="w", padx=10)
 
         seed_row = tk.Frame(self.title_frame, bg=T.BG)
-        seed_row.pack(pady=(0, 8))
-        tk.Label(seed_row, text="Seed (optional):", font=T.UI_FONT, bg=T.BG,
+        tk.Label(seed_row, text="Whisper a number:", font=T.UI_FONT, bg=T.BG,
                   fg=T.TEXT_DIM).pack(side="left", padx=(0, 6))
         self.seed_entry = tk.Entry(seed_row, width=14, font=T.UI_FONT, bg=T.PANEL_BG,
                                      fg=T.TEXT_MAIN, insertbackground=T.TEXT_MAIN,
                                      relief="flat", highlightthickness=1,
                                      highlightbackground=T.PANEL_BORDER)
         self.seed_entry.pack(side="left")
+        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=seed_row)
+        y += 28
 
-        tk.Button(self.title_frame, text="New Game (N)", command=self._start_new_game,
-                   **btn_style).pack(pady=5)
-        tk.Button(self.title_frame, text="Speedrun to Floor 100 (R)",
-                   command=self._start_speedrun, **btn_style).pack(pady=5)
+        icon = dict(zip(("sword", "hourglass", "ghost", "play", "book", "gear"),
+                        self._title_icon_imgs))
+        primary_style = dict(btn_style, bg="#1a3c5c", highlightbackground=T.TEXT_WARN,
+                              highlightthickness=2)
+        new_game_btn = tk.Button(self.title_frame, text="New Game (N)",
+                                   image=icon["sword"], command=self._start_new_game,
+                                   **primary_style)
+        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=new_game_btn)
+        y += 48
+        speedrun_btn = tk.Button(self.title_frame, text="Speedrun to Floor 100 (R)",
+                                   image=icon["hourglass"], command=self._start_speedrun,
+                                   **btn_style)
+        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=speedrun_btn)
+        y += 48
         self.continue_button = tk.Button(self.title_frame, text="Continue (C)",
-                                           command=self._continue_game, **btn_style)
-        self.continue_button.pack(pady=5)
-        tk.Button(self.title_frame, text="Watch Replay (V)",
-                   command=self._open_replay_picker, **btn_style).pack(pady=5)
-        tk.Button(self.title_frame, text="Lore (L)", command=lambda: self._show_lore(first_time=False),
-                   **btn_style).pack(pady=5)
+                                           image=icon["ghost"], command=self._continue_game,
+                                           **btn_style)
+        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=self.continue_button)
+        y += 48
+        watch_btn = tk.Button(self.title_frame, text="Watch Replay (V)",
+                                image=icon["play"], command=self._open_replay_picker,
+                                **btn_style)
+        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=watch_btn)
+        y += 48
+        lore_btn = tk.Button(self.title_frame, text="Lore (L)", image=icon["book"],
+                               command=lambda: self._show_lore(first_time=False),
+                               **btn_style)
+        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=lore_btn)
+        y += 48
+
         bottom_row = tk.Frame(self.title_frame, bg=T.BG)
-        bottom_row.pack(pady=5)
-        half_style = dict(btn_style)
-        half_style["width"] = 10
-        tk.Button(bottom_row, text="Settings (O)", command=self._open_settings,
-                   **half_style).pack(side="left", padx=4)
+        half_style = dict(btn_style, width=150)  # still pixels: has an icon
+        tk.Button(bottom_row, text="Settings (O)", image=icon["gear"],
+                   command=self._open_settings, **half_style).pack(side="left", padx=4)
+        # Quit has no icon, so its width reverts to Tk's normal CHARACTER
+        # units - must not inherit half_style's pixel width or "compound"
+        # with no image, which Tk accepts but renders as extra dead space.
+        quit_style = {k: v for k, v in btn_style.items()
+                      if k not in ("width", "compound", "anchor", "padx")}
         tk.Button(bottom_row, text="Quit", command=self._on_close,
-                   **half_style).pack(side="left", padx=4)
+                   width=10, **quit_style).pack(side="left", padx=4)
+        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=bottom_row)
+        y += 48
 
         scores_row = tk.Frame(self.title_frame, bg=T.BG)
-        scores_row.pack(pady=(16, 0))
         self.highscore_label = tk.Label(scores_row, text="", font=T.UI_FONT,
                                           bg=T.BG, fg=T.TEXT_DIM, justify="left")
         self.highscore_label.pack(side="left", padx=12, anchor="n")
         self.speedrun_score_label = tk.Label(scores_row, text="", font=T.UI_FONT,
                                                bg=T.BG, fg=T.TEXT_DIM, justify="left")
         self.speedrun_score_label.pack(side="left", padx=12, anchor="n")
+        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=scores_row)
+        y += 92
 
         self.title_status_label = tk.Label(self.title_frame, text="", font=T.UI_FONT,
                                              bg=T.BG, fg=T.TEXT_BAD)
-        self.title_status_label.pack(pady=(8, 0))
+        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=self.title_status_label)
+        y += 28
+
+        # The canvas keeps its fixed TITLE_VIEW_H; content beyond that
+        # scrolls (see the wheel bindings below) rather than growing the
+        # window past what fits on screen.
+        canvas.configure(scrollregion=(0, 0, self.TITLE_W, y))
+
+    def _bind_title_scroll(self):
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.title_canvas.bind_all(seq, self._on_title_scroll)
+
+    def _unbind_title_scroll(self):
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.title_canvas.unbind_all(seq)
+
+    def _on_title_scroll(self, event):
+        if getattr(event, "num", None) == 4:
+            self.title_canvas.yview_scroll(-3, "units")
+        elif getattr(event, "num", None) == 5:
+            self.title_canvas.yview_scroll(3, "units")
+        else:  # Windows/macOS: event.delta, +/-120 per notch
+            self.title_canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
 
     def _build_settings_overlay(self):
         self.settings_frame = tk.Frame(self, bg=T.PANEL_BG, highlightthickness=2,
@@ -1008,9 +1109,9 @@ class App(tk.Tk):
         if self._closing:
             return
         if self.mode == "title":
+            # The wordmark is a static image now (no text color to pulse);
+            # only the rotating tagline remains, on the same ~3s cadence.
             self._title_pulse_idx = (self._title_pulse_idx + 1) % len(TITLE_PULSE_COLORS)
-            self.title_label.configure(fg=TITLE_PULSE_COLORS[self._title_pulse_idx])
-            # Rotate the tagline every ~3 seconds (6 pulse ticks).
             if self._title_pulse_idx % len(TITLE_PULSE_COLORS) == 0:
                 self._tagline_idx = (getattr(self, "_tagline_idx", 0) + 1) % len(lore_data.TAGLINES)
                 self.tagline_label.configure(text=lore_data.TAGLINES[self._tagline_idx])

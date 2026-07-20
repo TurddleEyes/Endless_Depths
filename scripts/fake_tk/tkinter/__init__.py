@@ -50,6 +50,12 @@ class PhotoImage:
                     out.pixels[(x * zx + dx, y * zy + dy)] = color
         return out
 
+    def width(self):
+        return self.width_px
+
+    def height(self):
+        return self.height_px
+
 
 class Widget:
     def __init__(self, master=None, **kw):
@@ -96,6 +102,8 @@ class Widget:
     # -- misc -------------------------------------------------------------
     def bind(self, *a, **kw):
         pass
+
+    bind_all = unbind_all = bind
 
     def focus_set(self):
         _FOCUSED[0] = self
@@ -235,14 +243,34 @@ class Canvas(Widget):
             "create_image must receive a built PhotoImage"
         return self._add("image", args, kw)
 
+    def create_window(self, *args, **kw):
+        window = kw.get("window")
+        assert isinstance(window, Widget), \
+            "create_window must receive a real widget"
+        return self._add("window", args, kw)
+
     def move(self, item, dx, dy):
         pass
+
+    def yview(self, *a):
+        pass
+
+    def yview_scroll(self, *a, **kw):
+        pass
+
+    def bbox(self, *a):
+        return (0, 0, 1, 1)
 
     def delete(self, what="all"):
         if what == "all":
             self.drawn = []
         else:
             self.drawn = [d for d in self.drawn if d.get("tags") != what]
+
+
+class Scrollbar(Widget):
+    def set(self, *a):
+        pass
 
 
 class Tk(Widget):

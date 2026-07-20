@@ -8,12 +8,25 @@
 const TILE = 32;
 const SPRITE_PX = 32; // grids ship at 32x32 (Scale2x'd from 16x16 sources in ui/spritedata.py)
 
-// Touch devices get a smaller viewport (bigger on-screen tiles) and the
-// on-screen D-pad; the canvas then scales to the screen width via CSS.
 const IS_TOUCH = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
-const IS_SMALL = window.matchMedia("(max-width: 760px)").matches;
-let VIEW_COLS = IS_SMALL ? 15 : 26;
-let VIEW_ROWS = IS_SMALL ? 13 : 16;
+
+// The whole game renders at ONE fixed logical resolution per orientation -
+// 1600x900 (16:9) landscape or 900x1600 (9:16) portrait - picked from the
+// real window's aspect ratio (not a width breakpoint, so e.g. a phone
+// turned sideways gets the landscape layout, and a narrow desktop window
+// gets the portrait one). #stage (see index.html/style.css) is uniformly
+// scaled via fitStage() to fit whatever the real viewport is - that's the
+// ONE mechanism for both "responsive" and "fullscreen"; fullscreen is just
+// a bigger scale factor through the same code path, not a separate one.
+const STAGE_SIZES = { landscape: [1600, 900], portrait: [900, 1600] };
+let orientation = null; // null (not "landscape") guarantees updateOrientation()'s
+                         // change-check fires on its very first call at boot
+let VIEW_COLS = 26;
+let VIEW_ROWS = 16;
+
+function pickOrientation() {
+  return window.innerWidth >= window.innerHeight ? "landscape" : "portrait";
+}
 
 const PY_FILES = [
   "engine/__init__.py", "engine/bosses.py", "engine/constants.py", "engine/combat.py",
@@ -142,24 +155,43 @@ const ctx = canvas.getContext("2d");
 const minimap = $("minimap");
 const mmCtx = minimap.getContext("2d");
 
-canvas.width = VIEW_COLS * TILE;
-canvas.height = VIEW_ROWS * TILE;
 if (IS_TOUCH) $("touch-controls").classList.add("enabled");
 if (!IS_TOUCH) $("setting-dpad").classList.add("hidden");
 
-// The D-pad is opt-in; with it hidden, small screens get a taller viewport.
+// The D-pad is opt-in; with it hidden, portrait gets a taller viewport.
+// Also resizes the canvas's tile grid when orientation changes (landscape
+// is always a fixed 26x16; portrait is 15 wide, 13 or 17 tall depending
+// on the D-pad).
 function applyDpadSetting() {
   const on = IS_TOUCH && gameSettings.dpad_on;
   $("dpad").classList.toggle("hidden", !on);
   document.body.classList.toggle("dpad-off", !on);
-  VIEW_ROWS = IS_SMALL ? (on ? 13 : 17) : 16;
-  const h = VIEW_ROWS * TILE;
-  if (canvas.height !== h) {
+  VIEW_COLS = orientation === "landscape" ? 26 : 15;
+  VIEW_ROWS = orientation === "landscape" ? 16 : (on ? 13 : 17);
+  const w = VIEW_COLS * TILE, h = VIEW_ROWS * TILE;
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
     canvas.height = h;
     if (snap && floorData) render();
   }
 }
-applyDpadSetting();
+
+// Single entry point for both orientation switches and window resizes:
+// picks landscape/portrait from the real aspect ratio, flips the body
+// classes the CSS keys off of, resizes the tile grid if orientation
+// actually changed, and rescales #stage to fit.
+function updateOrientation() {
+  const next = pickOrientation();
+  const changed = next !== orientation;
+  orientation = next;
+  document.body.classList.toggle("landscape", orientation === "landscape");
+  document.body.classList.toggle("portrait", orientation === "portrait");
+  if (changed) applyDpadSetting();
+  fitStage();
+}
+updateOrientation();
+window.addEventListener("resize", updateOrientation);
+window.addEventListener("orientationchange", updateOrientation);
 
 /* ---------------------------------------------------------------- boot */
 async function boot() {
@@ -825,9 +857,6 @@ function updateMusic() {
 }
 
 /* ---------------------------------------------------------- fullscreen */
-const BASE_W = 1120;
-const BASE_H = 730;
-
 function toggleFullscreen() {
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => {});
@@ -836,23 +865,18 @@ function toggleFullscreen() {
   }
 }
 
-function fitScale() {
-  const app = $("app");
-  // Phones already scale via responsive CSS - the transform trick is for
-  // desktop fullscreen only.
-  if (document.fullscreenElement && !IS_SMALL) {
-    const scale = Math.min(window.innerWidth / BASE_W, window.innerHeight / BASE_H);
-    app.style.transform = `scale(${scale.toFixed(3)})`;
-    app.style.transformOrigin = "top center";
-    document.body.style.overflow = "hidden";
-  } else {
-    app.style.transform = "";
-    document.body.style.overflow = "";
-  }
+// #stage is ALWAYS scaled to fit the real viewport (see updateOrientation()
+// near the top of this file, and STAGE_SIZES) - fullscreen just changes
+// how much viewport there is to fit into, through the exact same code path
+// as an ordinary window resize. No separate "desktop fullscreen" special
+// case needed here anymore.
+function fitStage() {
+  const [stageW, stageH] = STAGE_SIZES[orientation];
+  const scale = Math.min(window.innerWidth / stageW, window.innerHeight / stageH);
+  $("stage").style.transform = `scale(${scale.toFixed(4)})`;
 }
 
-document.addEventListener("fullscreenchange", fitScale);
-window.addEventListener("resize", fitScale);
+document.addEventListener("fullscreenchange", fitStage);
 
 function applySnapshot(s) {
   // Replays have no input events to read facing from - infer it from

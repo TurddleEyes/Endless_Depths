@@ -402,6 +402,36 @@ def test_all_engine_modules_shipped_to_browser():
     print(f"OK: all {len(on_disk)} engine modules are shipped to the browser build")
 
 
+def test_itch_zip_script_ships_everything_main_js_needs():
+    """scripts/build_itch_zip.sh keeps its own hardcoded FILES array,
+    separate from main.js's PY_FILES - the exact same class of drift as
+    test_all_engine_modules_shipped_to_browser, but for the itch.io
+    package instead of the live site (engine/bosses.py shipped without
+    an itch entry once: the itch build silently omitted it, and the
+    deployed page failed with "failed to fetch engine/bosses.py")."""
+    import re
+    game_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(game_dir, "web", "main.js"), encoding="utf-8") as f:
+        main_js = f.read()
+    match = re.search(r"const PY_FILES = \[(.*?)\];", main_js, re.DOTALL)
+    assert match, "could not find PY_FILES in web/main.js"
+    needed = set(re.findall(r'"([^"]+\.py)"', match.group(1)))
+    needed |= {"web/webbridge.py", "index.html", "web/main.js", "web/style.css"}
+
+    with open(os.path.join(game_dir, "scripts", "build_itch_zip.sh"), encoding="utf-8") as f:
+        script = f.read()
+    match = re.search(r"FILES=\(\n(.*?)\n\)", script, re.DOTALL)
+    assert match, "could not find FILES=(...) in scripts/build_itch_zip.sh"
+    packaged = {line.strip() for line in match.group(1).splitlines()
+                if line.strip() and not line.strip().startswith("#")}
+
+    missing = needed - packaged
+    assert not missing, (
+        f"files main.js needs but scripts/build_itch_zip.sh doesn't package: "
+        f"{sorted(missing)} - the itch build will 404 fetching these")
+    print(f"OK: itch build script packages all {len(needed)} files the browser build needs")
+
+
 def test_lore():
     data = json.loads(webbridge.lore_json())
     assert data["title"]
@@ -433,6 +463,7 @@ if __name__ == "__main__":
     test_replay_round_trip_through_bridge()
     test_puzzle_via_bridge()
     test_all_engine_modules_shipped_to_browser()
+    test_itch_zip_script_ships_everything_main_js_needs()
     test_lore()
     test_audio_synth()
     print("\nAll web-bridge smoke tests passed.")

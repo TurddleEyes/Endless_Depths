@@ -244,6 +244,60 @@ def compose_px(base, *overlays):
     return out
 
 
+def resample_nn(rows, new_w: int, new_h: int):
+    """Nearest-neighbor resize to an arbitrary target size - keeps the
+    blocky pixel-art look (no blending), unlike scale2x_px which only
+    ever doubles."""
+    h = len(rows)
+    w = len(rows[0]) if h else 0
+    if h == 0 or w == 0 or new_w <= 0 or new_h <= 0:
+        return [[(0, 0, 0, 0)] * max(1, new_w) for _ in range(max(1, new_h))]
+    return [[rows[y * h // new_h][x * w // new_w] for x in range(new_w)]
+            for y in range(new_h)]
+
+
+def opaque_bbox(rows):
+    """(x, y, w, h) of the non-transparent region, or the full rows if
+    everything is transparent. Sprites bake in wildly different amounts of
+    padding per creature, so a raw stretch-to-fill of the source canvas
+    reads as inconsistently placed in a lineup - callers should crop to
+    this box and center THAT, not the canvas."""
+    h = len(rows)
+    w = len(rows[0]) if h else 0
+    min_x, min_y, max_x, max_y = w, h, -1, -1
+    for y, row in enumerate(rows):
+        for x, (_r, _g, _b, a) in enumerate(row):
+            if a > 10:
+                if x < min_x: min_x = x
+                if x > max_x: max_x = x
+                if y < min_y: min_y = y
+                if y > max_y: max_y = y
+    if max_x < min_x:
+        return 0, 0, w, h
+    return min_x, min_y, max_x - min_x + 1, max_y - min_y + 1
+
+
+def crop_px(rows, x0: int, y0: int, w: int, h: int):
+    return [row[x0:x0 + w] for row in rows[y0:y0 + h]]
+
+
+def fit_centered_px(rows, box_w: int, box_h: int, pad: int = 0):
+    """Crop rows to their opaque bbox, scale (nearest-neighbor, aspect
+    preserved) to fit within box_w x box_h minus pad, and center the
+    result on a fully transparent box_w x box_h canvas."""
+    bx, by, bw, bh = opaque_bbox(rows)
+    cropped = crop_px(rows, bx, by, bw, bh)
+    avail_w, avail_h = max(1, box_w - pad * 2), max(1, box_h - pad * 2)
+    scale = min(avail_w / bw, avail_h / bh)
+    dw, dh = max(1, round(bw * scale)), max(1, round(bh * scale))
+    fitted = resample_nn(cropped, dw, dh)
+    canvas = [[(0, 0, 0, 0)] * box_w for _ in range(box_h)]
+    ox, oy = (box_w - dw) // 2, (box_h - dh) // 2
+    for y, row in enumerate(fitted):
+        canvas[oy + y][ox:ox + dw] = row
+    return canvas
+
+
 def hex_to_rgb(hex_color: str):
     return (int(hex_color[1:3], 16), int(hex_color[3:5], 16),
             int(hex_color[5:7], 16))

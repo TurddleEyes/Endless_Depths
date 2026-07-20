@@ -50,6 +50,7 @@ FILES=(
     web/title_logo.png
     web/title_icons.png
     engine/__init__.py
+    engine/bosses.py
     engine/combat.py
     engine/constants.py
     engine/dungeon.py
