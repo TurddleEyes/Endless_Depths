@@ -16,13 +16,14 @@ Playable two ways:
 - Infinite procedurally generated floors — difficulty, loot and monsters
   scale forever
 - 12 monster types plus crowned boss monsters every 10 floors (with their
-  own battle music)
+  own battle music), each sealed into a single open arena that gives you a
+  10-turn countdown to size it up before it starts fighting back
 - Weapons, armor, accessories, potions and scrolls across 5 rarity tiers
 - Your hero's sprite changes with what you equip: weapon type in hand,
   blade color by rarity, tunic by armor class, amulet, green skin when
   poisoned
-- Shops every 3 floors with a buy/sell interface and full item stat
-  comparisons
+- Shops every 3 floors (except boss floors, which skip the shop) with a
+  buy/sell interface and full item stat comparisons
 - Traps (spikes, poison gas, teleport runes), poison status effects,
   fireball scrolls
 - Fog of war, minimap, floating damage numbers, screen shake, level-up

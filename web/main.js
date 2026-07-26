@@ -1163,6 +1163,14 @@ function handleEvents(events) {
         audio.play("mimic");
         shake();
         break;
+      case "boss_awaken_countdown":
+        audio.play("boss_telegraph");
+        break;
+      case "boss_awaken":
+        audio.play("boss_phase");
+        floatNum(ev.x, ev.y, "!", "#ff3b3b");
+        shake();
+        break;
       case "boss_telegraph":
         audio.play("boss_telegraph");
         floatNum(ev.x, ev.y, "!", "#ff3b3b");
@@ -1370,7 +1378,7 @@ function renderPanel() {
   $("xp-fill").style.width = (100 * p.xp / Math.max(1, p.xp_to_next)) + "%";
   $("boss-nameplate").classList.toggle("hidden", !snap.boss);
   if (snap.boss) {
-    $("boss-name").textContent = `${snap.boss.title}  -  Phase ${snap.boss.phase}`;
+    $("boss-name").textContent = `${snap.boss.title}  -  ${snap.boss.status}`;
     $("boss-fill").style.width = (100 * snap.boss.hp / Math.max(1, snap.boss.max_hp)) + "%";
     $("boss-text").textContent = `${snap.boss.hp}/${snap.boss.max_hp}`;
   }

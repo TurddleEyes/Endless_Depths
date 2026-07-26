@@ -166,13 +166,25 @@ def test_boss_fight_end_to_end():
     # Make the fight winnable-but-not-instant and watch it through: stand
     # beside the boss, keep attacking, let monster-turn processing run its
     # ability cycle. Calibrated off the boss's own stats so it survives
-    # ~15 hits - too high an attack (e.g. a flat huge number) can one-shot
+    # ~30 hits - too high an attack (e.g. a flat huge number) can one-shot
     # the boss before it ever gets a turn, which would mean no ability
-    # ever fires and this test would pass for the wrong reason.
+    # ever fires and this test would pass for the wrong reason. Needs more
+    # runway than a plain combat calibration would: every boss stands
+    # dormant (AWAKEN_COUNTDOWN_TURNS + 1 turns, engine/bosses.py) before
+    # its first real turn, and the player gets free, unanswered hits the
+    # whole time - the boss must survive that opening burst with enough HP
+    # left for a full telegraph/resolve/cooldown cycle on BOTH its abilities
+    # (phase jumps straight past 2 once it wakes up, since HP tracking was
+    # frozen during the dormancy), including the summon-capable one. Uses
+    # max(1, ...) rather than max(3, ...): a floor of 3 dominates the whole
+    # formula for the low-HP early bosses this seed search tends to find
+    # (e.g. a 38-HP Rat Boss), silently reintroducing a too-fast kill -
+    # combat.py's own resolve_attack already floors every hit at 1 damage,
+    # so no extra minimum is needed here.
     state.floor.monsters[:] = [boss]
     state.floor.traps.clear()
     state.player.hp = state.player.max_hp = 10 ** 6
-    state.player.base_attack = boss.defense + max(3, boss.max_hp // 15)
+    state.player.base_attack = boss.defense + max(1, boss.max_hp // 30)
     attack_key = _stand_beside_for_test(state, boss.x, boss.y)
 
     seen_events = set()
@@ -225,7 +237,15 @@ def test_boss_determinism():
 
     a, b = run(2026), run(2026)
     assert a == b, "identical seeds must produce an identical boss ability sequence"
-    assert any(step for step in a), "expected at least some ability activity across 60 turns"
+    # Not just "any non-empty step": the first ~11 turns are always the
+    # awaken-countdown's own dormant "awaken"/"awaken_done" ticks, which
+    # would trivially satisfy a bare non-emptiness check regardless of
+    # whether real ability logic ever ran. Require an actual
+    # telegraph/resolve/phase entry so a regression in that logic still
+    # fails this test.
+    real_kinds = {"telegraph", "resolve", "phase"}
+    assert any(r[0] in real_kinds for step in a for r in step), \
+        "expected at least some real ability/phase activity across 60 turns"
     print("OK: boss ability sequences are fully deterministic given the same rng stream")
 
 

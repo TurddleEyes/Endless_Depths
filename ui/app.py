@@ -80,6 +80,7 @@ class App(tk.Tk):
         self.settings.setdefault("music_on", not legacy_muted)
         self.settings.setdefault("sfx_on", not legacy_muted)
         self.settings.setdefault("shake_on", True)
+        self.settings.setdefault("fullscreen_on", False)
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.audio = AudioManager(
             cache_dir=os.path.join(base_dir, "assets"),
@@ -112,6 +113,9 @@ class App(tk.Tk):
         self._build_replay_picker()
         self._build_settings_overlay()
         self._build_puzzle_overlay()
+
+        if self.settings.get("fullscreen_on"):
+            self._apply_fullscreen(True)
 
         if self.settings.get("seen_lore"):
             self._show_title()
@@ -310,6 +314,8 @@ class App(tk.Tk):
         self.setting_sfx_btn.pack(pady=4, padx=20)
         self.setting_shake_btn = tk.Button(f, command=lambda: self._toggle_setting("shake_on"), **style)
         self.setting_shake_btn.pack(pady=4, padx=20)
+        self.setting_fullscreen_btn = tk.Button(f, command=self._toggle_fullscreen, **style)
+        self.setting_fullscreen_btn.pack(pady=4, padx=20)
         tk.Button(f, text="Close (Esc)", command=self._close_settings, **style).pack(pady=(12, 14))
 
     def _refresh_settings_labels(self):
@@ -318,6 +324,7 @@ class App(tk.Tk):
         self.setting_music_btn.configure(text=f"Music: {onoff('music_on')}")
         self.setting_sfx_btn.configure(text=f"Sound Effects: {onoff('sfx_on')}")
         self.setting_shake_btn.configure(text=f"Screen Shake: {onoff('shake_on')}")
+        self.setting_fullscreen_btn.configure(text=f"Fullscreen: {'On' if self._fullscreen else 'Off'}")
 
     def _toggle_setting(self, key: str):
         self.settings[key] = not self.settings.get(key, True)
@@ -1220,12 +1227,26 @@ class App(tk.Tk):
             if event.keysym in ("Return", "Escape"):
                 self._show_title()
 
-    def _toggle_fullscreen(self):
-        self._fullscreen = not self._fullscreen
+    def _apply_fullscreen(self, value: bool):
+        """Sets the real window attribute + self._fullscreen, without
+        touching the persisted setting. Split out from _toggle_fullscreen
+        so restoring a saved preference at startup can't silently erase it:
+        some window managers reject -fullscreen before the window is first
+        mapped, and a startup call that also persisted on failure would
+        overwrite a perfectly good `fullscreen_on: true` with `false` from
+        one transient, pre-map-only error."""
+        self._fullscreen = value
         try:
             self.attributes("-fullscreen", self._fullscreen)
         except tk.TclError:
             self._fullscreen = False
+
+    def _toggle_fullscreen(self):
+        self._apply_fullscreen(not self._fullscreen)
+        self.settings["fullscreen_on"] = self._fullscreen
+        save_module.save_settings(self.settings)
+        if getattr(self, "setting_fullscreen_btn", None) is not None:
+            self._refresh_settings_labels()
 
     def _toggle_mute(self):
         self.audio.set_muted(not self.audio.muted)
@@ -1390,6 +1411,12 @@ class App(tk.Tk):
                 self.audio.play("plate")
             elif et == "push":
                 self.audio.play("push")
+            elif et == "boss_awaken_countdown":
+                self.audio.play("boss_telegraph")
+            elif et == "boss_awaken":
+                self.audio.play("boss_phase")
+                self._add_fx("flash", x=ev["x"], y=ev["y"], color="#ff3b3b", ttl=6)
+                self._shake(4)
             elif et == "boss_telegraph":
                 self.audio.play("boss_telegraph")
                 self._add_fx("flash", x=ev["x"], y=ev["y"], color="#ff3b3b", ttl=6)
@@ -1953,8 +1980,8 @@ class App(tk.Tk):
             return
         kit = boss_module.BOSS_KITS.get(boss.name[:-5])
         title = kit.title if kit else boss.name
-        phase = boss.boss_state.get("phase", 1)
-        self.boss_name_label.configure(text=f"{title}  -  Phase {phase}")
+        status = boss_module.boss_status_text(boss.boss_state)
+        self.boss_name_label.configure(text=f"{title}  -  {status}")
         self.boss_name_label.pack(anchor="w", padx=10, pady=(4, 0))
         self.boss_bar.pack(anchor="w", padx=10, pady=(2, 4))
         self._draw_bar(self.boss_bar, boss.hp / max(1, boss.max_hp), "#ff3b3b",

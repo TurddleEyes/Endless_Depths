@@ -684,12 +684,15 @@ class GameState:
     def _apply_boss_result(self, monster, result) -> bool:
         """Applies one BossTurnResult from engine/bosses.py. Returns True if
         it consumed the boss's turn (telegraph/resolve), False if it's just
-        an incidental phase-change notice (chase/melee still follow)."""
+        an incidental notice - phase change, or the awaken-countdown's final
+        "awaken_done" tick, which announces the fight starting but leaves
+        chase/melee to run immediately after in the same turn instead of
+        overselling a same-turn attack that didn't actually happen."""
         self._log(result.message)
         if result.event:
             self._emit(result.event, x=monster.x, y=monster.y,
                        ability=result.ability_kind)
-        if result.kind == "phase":
+        if result.kind in ("phase", "awaken_done"):
             return False
         if result.damage:
             self.player.hp -= result.damage

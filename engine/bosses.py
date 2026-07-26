@@ -32,6 +32,12 @@ ENRAGE_ATTACK_MULT = {1: 1.0, 2: 1.0, 3: 1.15, 4: 1.35}
 ENRAGE_DEFENSE_MULT = {1: 1.0, 2: 1.0, 3: 1.05, 4: 1.1}
 SELF_BUFF_DURATION = 4  # turns a self_buff ability's boost lasts on top of enrage
 
+# Turns a boss stands frozen - no movement, no melee, no abilities - after
+# first becoming aware of the player, giving a fair "the fight is about to
+# start" window before anything can hit back. The player is always free to
+# attack it during this window; only the boss's own turn is suppressed.
+AWAKEN_COUNTDOWN_TURNS = 10
+
 
 @dataclass
 class Ability:
@@ -351,6 +357,48 @@ def _kit_for(monster) -> Optional[BossKit]:
     return BOSS_KITS.get(base_name)
 
 
+def boss_status_text(boss_state: dict) -> str:
+    """Human-readable nameplate status ("stirring...", "awakening in N...",
+    "Phase X") derived from a boss's boss_state. Single source of truth for
+    both front-ends (ui/app.py, web via webbridge.py's _boss_info) so the
+    wording can't drift between the desktop and web renderers."""
+    if not boss_state.get("awakened", False):
+        countdown = boss_state.get("awaken_countdown")
+        return f"awakening in {countdown}..." if countdown else "stirring..."
+    return f"Phase {boss_state.get('phase', 1)}"
+
+
+def _tick_awaken_countdown(kit, bs) -> list:
+    """Runs instead of the normal turn while the boss is still dormant.
+    Every dormant tick (kind="awaken") consumes the turn - no phase check,
+    no ability, no melee/chase - until the countdown reaches zero. That
+    final tick uses kind="awaken_done" instead: world.py treats it like a
+    "phase" result (logged/emitted, but does NOT consume the turn), so the
+    boss's normal chase/melee logic runs immediately after in the same
+    game-turn - matching its "awakens and attacks!" message, the boss
+    actually can attack (or start closing the distance) right then rather
+    than the message overselling by a full turn. bs["awakened"] flips for
+    good here - every later call skips this function entirely."""
+    countdown = bs.get("awaken_countdown")
+    if countdown is None:
+        bs["awaken_countdown"] = AWAKEN_COUNTDOWN_TURNS
+        return [BossTurnResult(
+            kind="awaken", event="boss_awaken_countdown",
+            message=f"{kit.title} notices you - it will strike in "
+                    f"{AWAKEN_COUNTDOWN_TURNS} turns!")]
+    countdown -= 1
+    if countdown > 0:
+        bs["awaken_countdown"] = countdown
+        return [BossTurnResult(
+            kind="awaken", event="boss_awaken_countdown",
+            message=f"{kit.title} readies itself... {countdown} turns left!")]
+    bs["awakened"] = True
+    bs["awaken_countdown"] = 0
+    return [BossTurnResult(
+        kind="awaken_done", event="boss_awaken",
+        message=f"{kit.title} awakens and attacks!")]
+
+
 def maybe_process_boss_turn(monster, player, floor, rng) -> list:
     """Empty list -> world.py's normal chase/melee logic should run as-is.
     A list containing a "telegraph" or "resolve" result -> that result
@@ -363,6 +411,10 @@ def maybe_process_boss_turn(monster, player, floor, rng) -> list:
     if kit is None:
         return []
     bs = monster.boss_state
+
+    if not bs.get("awakened", False):
+        return _tick_awaken_countdown(kit, bs)
+
     results = []
 
     hp_pct = monster.hp / max(1, monster.max_hp)

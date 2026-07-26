@@ -188,7 +188,13 @@ def _boss_scaled_stats(hp: int, attack: int, defense: int, xp: int, gold: int) -
 
 def _fresh_boss_state() -> dict:
     return {"phase": 1, "cooldowns": {}, "pending": None,
-            "buff_turns_left": 0, "buff_attack_mult": 1.0, "buff_defense_mult": 1.0}
+            "buff_turns_left": 0, "buff_attack_mult": 1.0, "buff_defense_mult": 1.0,
+            # Every boss stands dormant (no movement, no abilities, no
+            # melee) for AWAKEN_COUNTDOWN_TURNS turns after first becoming
+            # aware of the player - see bosses.py. awaken_countdown is None
+            # until that first turn, then counts down to 0; awakened flips
+            # permanently once it does.
+            "awaken_countdown": None, "awakened": False}
 
 
 def generate_monster(depth: int, rng, x: int, y: int, force_boss: bool = False) -> Monster:

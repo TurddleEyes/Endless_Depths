@@ -21,6 +21,9 @@ class Room:
     def center(self):
         return self.x + self.w // 2, self.y + self.h // 2
 
+    def contains(self, x: int, y: int) -> bool:
+        return self.x <= x < self.x + self.w and self.y <= y < self.y + self.h
+
     def intersects(self, other: "Room", padding: int = 1) -> bool:
         return (
             self.x - padding < other.x + other.w
@@ -165,8 +168,41 @@ def _generate_rooms(rng) -> tuple:
     return tiles, rooms
 
 
+def _generate_boss_arena(rng) -> tuple:
+    """One big open room instead of the usual room-and-corridor maze - a
+    boss floor IS the fight, so it gets a single arena rather than a maze
+    to funnel through. The player spawns hard against one wall, the sealed
+    stairs door sits hard against the opposite wall, and the boss is later
+    pinned to the arena's center (see generate_floor) so crossing the open
+    floor to reach it is the whole point.
+
+    `rooms` still comes back as a 3-element list (start/arena/stairs) so
+    `len(rooms) >= 2` assumptions and the `usable_rooms` exclusion keep
+    working unchanged - only the tile carving is special-cased here.
+    start_room/stairs_room are pure bookkeeping (spawn point + stairs
+    position): generate_floor scopes monster/item/trap/chest scatter to
+    `usable_rooms` (== just the arena) on boss floors, so these two never
+    need to be scatter-eligible themselves - their size only has to be
+    big enough to give the player's spawn point a real exclusion zone via
+    `Room.contains()`."""
+    width, height = C.MAP_WIDTH, C.MAP_HEIGHT
+    tiles = [[C.TILE_WALL for _ in range(width)] for _ in range(height)]
+    margin = 1
+    arena = Room(margin, margin, width - margin * 2, height - margin * 2)
+    _carve_room(tiles, arena)
+
+    mid_y = height // 2
+    start_room = Room(margin + 1, mid_y - 1, 3, 3)
+    stairs_room = Room(width - margin - 4, mid_y - 1, 3, 3)
+    return tiles, [start_room, arena, stairs_room]
+
+
 def generate_floor(depth: int, rng) -> Floor:
-    tiles, rooms = _generate_rooms(rng)
+    is_boss_floor = depth % C.BOSS_INTERVAL == 0
+    if is_boss_floor:
+        tiles, rooms = _generate_boss_arena(rng)
+    else:
+        tiles, rooms = _generate_rooms(rng)
     width, height = C.MAP_WIDTH, C.MAP_HEIGHT
 
     start_room = rooms[0]
@@ -176,7 +212,9 @@ def generate_floor(depth: int, rng) -> Floor:
 
     shop_pos = None
     shop_stock = []
-    has_shop = depth % C.SHOP_INTERVAL == 0 and len(rooms) > 2
+    # No shopkeeper inside a boss arena - the boss IS this floor's whole
+    # purpose, same reasoning that keeps puzzles off boss floors below.
+    has_shop = depth % C.SHOP_INTERVAL == 0 and len(rooms) > 2 and not is_boss_floor
     usable_rooms = [r for r in rooms if r is not start_room and r is not stairs_room]
 
     if has_shop and usable_rooms:
@@ -188,10 +226,17 @@ def generate_floor(depth: int, rng) -> Floor:
         shop_stock = generate_shop_inventory(depth, rng)
 
     monsters = []
-    is_boss_floor = depth % C.BOSS_INTERVAL == 0
     monster_rooms = usable_rooms or [r for r in rooms if r is not start_room]
-    n_monsters = min(len(monster_rooms) + rng.randint(0, 2), max(1, 2 + depth // 2))
-    n_monsters = min(n_monsters, 12)
+    # On a boss floor `monster_rooms` is just the one huge arena - the old
+    # "one monster per room, roughly" formula would otherwise flatten every
+    # boss floor to 1-3 total monsters regardless of depth (len(rooms)==1),
+    # instead of the depth-scaled population a same-depth normal floor gets.
+    depth_cap = max(1, 2 + depth // 2)
+    if is_boss_floor:
+        n_monsters = min(depth_cap, 12)
+    else:
+        n_monsters = min(len(monster_rooms) + rng.randint(0, 2), depth_cap)
+        n_monsters = min(n_monsters, 12)
 
     occupied = set()
     for i in range(n_monsters):
@@ -199,11 +244,49 @@ def generate_floor(depth: int, rng) -> Floor:
         for _ in range(10):
             mx = rng.randint(room.x, room.x + room.w - 1)
             my = rng.randint(room.y, room.y + room.h - 1)
-            if tiles[my][mx] == C.TILE_FLOOR and (mx, my) not in occupied and (mx, my) != start_room.center:
+            # start_room.contains(...), not just "!= center": on a boss
+            # floor the arena geometrically contains the whole start_room
+            # footprint (unlike normal floors, where Room.intersects keeps
+            # every monster-eligible room clear of it by construction), so
+            # only excluding the single center tile let monsters land right
+            # next to the player's spawn point.
+            if (tiles[my][mx] == C.TILE_FLOOR and (mx, my) not in occupied
+                    and not start_room.contains(mx, my)):
                 occupied.add((mx, my))
                 force_boss = is_boss_floor and i == 0
                 monsters.append(generate_monster(depth, rng, mx, my, force_boss=force_boss))
                 break
+
+    # Pin the boss to the arena's dead center - a deliberate "guardian of
+    # the room" placement rather than wherever the generic loop above
+    # happened to roll, so crossing the open arena to reach it is the
+    # actual shape of the fight. If the exact center is taken (another
+    # monster landed there first), spiral outward ring by ring for the
+    # nearest free floor tile instead of silently giving up.
+    if is_boss_floor:
+        boss = next((m for m in monsters if m.is_boss), None)
+        if boss is not None:
+            center_x, center_y = width // 2, height // 2
+            target = None
+            for radius in range(0, 6):
+                ring = ([(center_x, center_y)] if radius == 0 else
+                         [(center_x + dx, center_y + dy)
+                          for dx in range(-radius, radius + 1)
+                          for dy in range(-radius, radius + 1)
+                          if max(abs(dx), abs(dy)) == radius])
+                for bx, by in ring:
+                    if not (0 <= bx < width and 0 <= by < height):
+                        continue
+                    if (tiles[by][bx] == C.TILE_FLOOR and (bx, by) not in occupied
+                            and not start_room.contains(bx, by)):
+                        target = (bx, by)
+                        break
+                if target:
+                    break
+            if target is not None:
+                occupied.discard((boss.x, boss.y))
+                boss.x, boss.y = target
+                occupied.add(target)
 
     # Seal the stairs behind an arena door while the boss lives - but only
     # if a boss actually made it onto the floor (placement can fail all its
@@ -213,6 +296,13 @@ def generate_floor(depth: int, rng) -> Floor:
     if boss_arena_sealed:
         tiles[stairs_pos[1]][stairs_pos[0]] = C.TILE_BOSS_DOOR
 
+    # On a boss floor, scatter loot/traps/chests across the arena only -
+    # `rooms` also holds the two 3x3 start/stairs bookkeeping boxes, and a
+    # plain rng.choice(rooms) would give each of those the same 1-in-3 odds
+    # as the ~1740-tile arena, clustering loot right at spawn/the sealed
+    # door instead of across the floor the fight actually happens on.
+    scatter_rooms = usable_rooms if (is_boss_floor and usable_rooms) else rooms
+
     ground_items = []
     # Loot density tracks the 60x32 map: the old 2-4 items on a 48x26 grid
     # left early floors too barren to find a starting weapon before the
@@ -220,25 +310,26 @@ def generate_floor(depth: int, rng) -> Floor:
     n_items = rng.randint(3, 6) + depth // 4
     n_items = min(n_items, 10)
     for _ in range(n_items):
-        room = rng.choice(rooms)
+        room = rng.choice(scatter_rooms)
         for _ in range(10):
             ix = rng.randint(room.x, room.x + room.w - 1)
             iy = rng.randint(room.y, room.y + room.h - 1)
-            if tiles[iy][ix] == C.TILE_FLOOR and (ix, iy) not in occupied and (ix, iy) != start_room.center:
+            if (tiles[iy][ix] == C.TILE_FLOOR and (ix, iy) not in occupied
+                    and not start_room.contains(ix, iy)):
                 occupied.add((ix, iy))
                 ground_items.append(GroundItem(ix, iy, generate_item(depth, rng)))
                 break
 
     traps = []
-    start_center = start_room.center
     n_traps = min(rng.randint(0, 2) + depth // 5, 6)
     trap_kinds = ["spike", "spike", "spike", "poison", "poison", "teleport"]
     for _ in range(n_traps):
-        room = rng.choice(rooms)
+        room = rng.choice(scatter_rooms)
         for _ in range(10):
             tx = rng.randint(room.x, room.x + room.w - 1)
             ty = rng.randint(room.y, room.y + room.h - 1)
-            if tiles[ty][tx] == C.TILE_FLOOR and (tx, ty) not in occupied and (tx, ty) != start_center:
+            if (tiles[ty][tx] == C.TILE_FLOOR and (tx, ty) not in occupied
+                    and not start_room.contains(tx, ty)):
                 occupied.add((tx, ty))
                 traps.append(Trap(tx, ty, rng.choice(trap_kinds)))
                 break
@@ -251,7 +342,12 @@ def generate_floor(depth: int, rng) -> Floor:
     n_chests = 1 if rng.random() < C.CHEST_CHANCE else 0
     if depth >= 10 and rng.random() < C.CHEST_SECOND_CHANCE:
         n_chests += 1
-    chest_rooms = [r for r in rooms if r is not start_room]
+    # On boss floors this also keeps stairs_room out of the running: its
+    # only strict-interior tile (a 3x3 room's interior collapses to one
+    # coordinate) is exactly stairs_pos, which is never TILE_FLOOR by this
+    # point - drawing it would burn every one of the 10 retries below.
+    chest_rooms = (usable_rooms if (is_boss_floor and usable_rooms)
+                    else [r for r in rooms if r is not start_room])
     for _ in range(n_chests):
         pos, chest_room = None, None
         for _ in range(10):

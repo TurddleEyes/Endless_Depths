@@ -338,7 +338,7 @@ def _boss_info(floor) -> dict | None:
     kit = boss_module.BOSS_KITS.get(boss.name[:-5])
     return {
         "title": kit.title if kit else boss.name,
-        "phase": boss.boss_state.get("phase", 1),
+        "status": boss_module.boss_status_text(boss.boss_state),
         "hp": boss.hp,
         "max_hp": boss.max_hp,
     }
