@@ -32,7 +32,8 @@ const PY_FILES = [
   "engine/__init__.py", "engine/bosses.py", "engine/constants.py", "engine/combat.py",
   "engine/dungeon.py", "engine/entities.py", "engine/fov.py",
   "engine/achievements.py", "engine/biomes.py", "engine/items.py", "engine/puzzles.py", "engine/replay.py",
-  "engine/save.py", "engine/shop.py", "engine/status.py", "engine/traits.py", "engine/world.py",
+  "engine/save.py", "engine/shop.py", "engine/status.py", "engine/traits.py",
+  "engine/lorepages.py", "engine/world.py",
   "ui/__init__.py", "ui/spritedata.py", "ui/iteminfo.py", "ui/audio.py", "ui/lore.py",
   "ui/texturepack.py",
 ];
@@ -776,7 +777,7 @@ const audio = {
 
 /* ------------------------------------------------------------ screens */
 function showScreen(name) {
-  for (const id of ["title-screen", "lore-screen", "play-screen",
+  for (const id of ["title-screen", "lore-screen", "journal-screen", "play-screen",
                      "gameover-screen", "victory-screen", "replay-picker",
                      "bestiary-screen", "achievements-screen"]) {
     $(id).classList.toggle("hidden", id !== name);
@@ -785,6 +786,7 @@ function showScreen(name) {
   $("shop-overlay").classList.add("hidden");
   $("settings-overlay").classList.add("hidden");
   $("puzzle-overlay").classList.add("hidden");
+  $("lore-page-overlay").classList.add("hidden");
   $("replay-controls").classList.toggle("hidden", mode !== "replay");
 }
 
@@ -960,6 +962,72 @@ function renderAchievements() {
 function finishLore() {
   localStorage.setItem(LS_SEEN_LORE, "1");
   toTitle();
+}
+
+/* ---------------------------------------------------------------
+ * Found-page popup (mid-run) + the Journal screen (title menu, via
+ * the Lore screen's "View Found Pages" link). Web owns its own
+ * persistence in localStorage, same split as bestiary/achievements
+ * above - the bridge only ever supplies pure data (the static 54-page
+ * catalog, this run's newly-found ids), never touches disk. */
+const LS_LORE_JOURNAL = "endless_depths_lore_journal";
+let lorePagesCatalog = null;  // static {id: {author, text}}, fetched from the bridge once
+let journalSel = 0;
+
+function loadLoreJournalData() {
+  try { return JSON.parse(localStorage.getItem(LS_LORE_JOURNAL)) || []; }
+  catch { return []; }
+}
+
+function mergeLoreJournalFromRun() {
+  const foundThisRun = JSON.parse(bridge.lore_journal_run_data_json());
+  const found = new Set(loadLoreJournalData());
+  for (const id of foundThisRun) found.add(id);
+  localStorage.setItem(LS_LORE_JOURNAL, JSON.stringify([...found].sort()));
+}
+
+function openLorePagePopup(author, text) {
+  mode = "lore_page";
+  $("lore-page-author").textContent = author;
+  $("lore-page-text").textContent = text;
+  $("lore-page-overlay").classList.remove("hidden");
+}
+
+function closeLorePagePopup() {
+  $("lore-page-overlay").classList.add("hidden");
+  mode = "play";
+}
+
+function openJournal() {
+  mode = "journal";
+  if (!lorePagesCatalog) lorePagesCatalog = JSON.parse(bridge.lore_pages_catalog_json());
+  journalSel = 0;
+  renderJournal();
+  showScreen("journal-screen");
+}
+
+function journalEntries() {
+  // Fully progressive: an author's category header only appears here once
+  // at least one of their pages has been found - renderItemList already
+  // only emits a header when it hits the first entry of a new category,
+  // so filtering to found ids before grouping is all this needs.
+  const found = new Set(loadLoreJournalData());
+  return Object.entries(lorePagesCatalog)
+    .filter(([id]) => found.has(id))
+    .map(([id, p]) => ({ id, category: p.author, label: id, text: p.text, color: "#e0d356" }));
+}
+
+function renderJournal() {
+  const entries = journalEntries();
+  journalSel = Math.max(0, Math.min(journalSel, entries.length - 1));
+  renderItemList($("journal-list"), entries, journalSel,
+    (i) => { journalSel = i; renderJournal(); }, () => {},
+    (e) => e.label, (e) => e.color);
+  renderDetails("journal-detail-name", "journal-detail-body", entries[journalSel],
+    (e) => e.text.split("\n"));
+  // No denominator on purpose - the whole point of "fully progressive" is
+  // that the corpus's total size stays a mystery too, not just the content.
+  $("journal-progress").textContent = `Pages found: ${entries.length}`;
 }
 
 function loadScores() {
@@ -1205,6 +1273,7 @@ function finishRunMetaTracking(finished) {
   // recordNormalModeRun's leaderboard, which is normal/daily-only). Returns
   // a "New achievement: X!" suffix to append to the stats text, or "".
   mergeBestiaryFromRun();
+  mergeLoreJournalFromRun();
   const ctx = {
     depth_reached: snap.depth, level: snap.player.level, gold: snap.player.gold,
     kills: snap.player.kills, mode: snap.run_mode, finished,
@@ -1602,6 +1671,10 @@ function handleEvents(events) {
       case "mimic":
         audio.play("mimic");
         shake();
+        break;
+      case "lore_page":
+        audio.play("pickup");
+        openLorePagePopup(ev.author, ev.text);
         break;
       case "boss_awaken_countdown":
         audio.play("boss_telegraph");
@@ -2154,6 +2227,10 @@ document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeSettings();
     return;
   }
+  if (mode === "lore_page") {
+    if (e.key === "Escape" || e.key === "Enter" || e.key === " ") closeLorePagePopup();
+    return;
+  }
   switch (mode) {
     case "title":
       if (e.key === "n" || e.key === "N" || e.key === "Enter") startNewGame();
@@ -2168,6 +2245,7 @@ document.addEventListener("keydown", (e) => {
       break;
     case "bestiary":
     case "achievements":
+    case "journal":
       if (e.key === "Escape") toTitle();
       break;
     case "replay-picker":
@@ -2630,6 +2708,9 @@ $("score-view-top").addEventListener("click", () => setTitleScoreView("top"));
 $("score-view-recent").addEventListener("click", () => setTitleScoreView("recent"));
 $("lore-next").addEventListener("click", () => loreStep(1));
 $("lore-back").addEventListener("click", () => loreStep(-1));
+$("lore-journal-link").addEventListener("click", openJournal);
+$("journal-back").addEventListener("click", toTitle);
+$("lore-page-close").addEventListener("click", closeLorePagePopup);
 $("btn-speedrun").addEventListener("click", startSpeedrun);
 $("btn-watch").addEventListener("click", openReplayPicker);
 $("victory-title-btn").addEventListener("click", toTitle);

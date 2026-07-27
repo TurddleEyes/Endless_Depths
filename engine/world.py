@@ -21,6 +21,7 @@ from .entities import Player, base_template_name, generate_monster, generate_mon
 from .fov import compute_fov
 from .items import (build_item_identity, generate_item, identity_key,
                      resolved_name, use_item as apply_item_effect)
+from . import lorepages
 from . import puzzles as puzzle_module
 from . import shop as shop_module
 from . import status as status_module
@@ -113,6 +114,12 @@ class GameState:
         self.bestiary_seen: set = set()
         self.bestiary_kills: dict = {}
         self.boss_kills: int = 0  # M6 achievements ("Boss Slayer")
+        # Found-page ids picked up so far THIS RUN - purely per-run, like
+        # bestiary_seen above (not loaded from the persistent journal at
+        # game start), so a floor's page pool only excludes pages this same
+        # run already found. Merged into the persistent journal file/
+        # localStorage once at run-end (see save.py merge_lore_journal).
+        self.pages_found: set = set()
 
     def _record(self, code: str, *params):
         self.action_log.append([code, *params] if params else [code])
@@ -128,7 +135,7 @@ class GameState:
 
     def _enter_floor(self, regenerate: bool):
         if regenerate:
-            self.floor = generate_floor(self.depth, self.rng)
+            self.floor = generate_floor(self.depth, self.rng, lore_found=self.pages_found)
         sx, sy = start_position(self.floor)
         self.player.x, self.player.y = sx, sy
         compute_fov(self.floor, sx, sy)
@@ -344,6 +351,12 @@ class GameState:
             self.player.gold += item.quantity
             self._log(f"You pick up {item.quantity} gold.")
             self._emit("gold", toast=f"+{item.quantity} gold", cat="gold")
+        elif item.category == "lore":
+            page = lorepages.PAGES_BY_ID[item.lore_id]
+            self.pages_found.add(page.id)
+            self._log(f"You find a page ({page.author}).")
+            self._emit("lore_page", author=page.author, text=page.text, page_id=page.id,
+                       toast=f"Found a page ({page.author})", cat="item")
         else:
             self.player.inventory.append(item)
             name = resolved_name(item, self.item_identity, self.player.identified)

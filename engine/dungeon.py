@@ -7,7 +7,8 @@ from typing import Optional
 from . import biomes as biome_module
 from . import constants as C
 from .entities import Monster, generate_monster
-from .items import Item, generate_item, make_key
+from .items import Item, generate_item, make_key, make_lore_page
+from . import lorepages
 from . import puzzles as puzzle_module
 
 
@@ -198,10 +199,48 @@ def _generate_boss_arena(rng) -> tuple:
     return tiles, [start_room, arena, stairs_room]
 
 
-def generate_floor(depth: int, rng) -> Floor:
+def _generate_silent_floor(rng) -> tuple:
+    """The Well's page W-5 is written as a one-time, floor-silencing
+    moment ("wherever it spawns, nothing else spawns on that floor. The
+    floor is otherwise silent.") - generate_floor's is_silent_floor branch
+    makes that literal: one small room, a short hallway, the stairs, and
+    nothing else. Two small bookkeeping rooms (start, stairs) joined by a
+    single straight corridor - the same shape `_generate_boss_arena`
+    already uses for its own start/stairs rooms, just with no big arena
+    in between."""
+    width, height = C.MAP_WIDTH, C.MAP_HEIGHT
+    tiles = [[C.TILE_WALL for _ in range(width)] for _ in range(height)]
+    mid_y = height // 2
+    start_room = Room(4, mid_y - 1, 3, 3)
+    stairs_room = Room(9, mid_y - 1, 3, 3)
+    _carve_room(tiles, start_room)
+    _carve_room(tiles, stairs_room)
+    sx, sy = start_room.center
+    ex, ey = stairs_room.center
+    _carve_h(tiles, sx, ex, sy)
+    return tiles, [start_room, stairs_room]
+
+
+def generate_floor(depth: int, rng, lore_found: set = frozenset()) -> Floor:
     is_boss_floor = depth % C.BOSS_INTERVAL == 0
+
+    # Decide the floor's found-page pickup (if any) before anything else is
+    # generated: W-5 needs to steer which room-generation branch runs below,
+    # so the pick can't wait until the ground-items step further down like
+    # every other page's placement does. Boss floors never roll for a page
+    # (stays focused on the fight, and sidesteps a boss/silent-floor clash).
+    lore_page = None
+    if not is_boss_floor:
+        band = lorepages.band_for_depth(depth)
+        eligible = [p for p in lorepages.PAGES if p.band == band and p.id not in lore_found]
+        if eligible and rng.random() < C.LORE_PAGE_CHANCE:
+            lore_page = rng.choice(eligible)
+    is_silent_floor = lore_page is not None and lore_page.id == "W-5"
+
     if is_boss_floor:
         tiles, rooms = _generate_boss_arena(rng)
+    elif is_silent_floor:
+        tiles, rooms = _generate_silent_floor(rng)
     else:
         tiles, rooms = _generate_rooms(rng)
     width, height = C.MAP_WIDTH, C.MAP_HEIGHT
@@ -210,6 +249,22 @@ def generate_floor(depth: int, rng) -> Floor:
     stairs_room = rooms[-1] if len(rooms) > 1 else rooms[0]
     stairs_pos = stairs_room.center
     tiles[stairs_pos[1]][stairs_pos[0]] = C.TILE_STAIRS
+
+    if is_silent_floor:
+        # Nothing else on this floor - not a monster, not a shop, not a
+        # trap. The page sits one tile from the player's spawn, right in
+        # front of them (see "make it an item that sits right in the
+        # front of the player").
+        sx, sy = start_room.center
+        ground_items = [GroundItem(sx + 1, sy, make_lore_page(lore_page))]
+        explored = [[False] * width for _ in range(height)]
+        visible = [[False] * width for _ in range(height)]
+        return Floor(
+            depth=depth, width=width, height=height, tiles=tiles, rooms=rooms,
+            stairs_pos=stairs_pos, monsters=[], ground_items=ground_items,
+            traps=[], shop_pos=None, shop_stock=[], chests=[], puzzle=None,
+            boss_arena_sealed=False, explored=explored, visible=visible,
+        )
 
     shop_pos = None
     shop_stock = []
@@ -319,6 +374,20 @@ def generate_floor(depth: int, rng) -> Floor:
                     and not start_room.contains(ix, iy)):
                 occupied.add((ix, iy))
                 ground_items.append(GroundItem(ix, iy, generate_item(depth, rng)))
+                break
+
+    # The picked found-page (if any, and not W-5's silent-floor special
+    # case which already returned above) scatters exactly like a ground
+    # item - same room pool, same collision guard, same retry-10 pattern.
+    if lore_page is not None:
+        room = rng.choice(scatter_rooms)
+        for _ in range(10):
+            px = rng.randint(room.x, room.x + room.w - 1)
+            py = rng.randint(room.y, room.y + room.h - 1)
+            if (tiles[py][px] == C.TILE_FLOOR and (px, py) not in occupied
+                    and not start_room.contains(px, py)):
+                occupied.add((px, py))
+                ground_items.append(GroundItem(px, py, make_lore_page(lore_page)))
                 break
 
     traps = []

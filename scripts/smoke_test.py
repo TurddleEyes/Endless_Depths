@@ -761,15 +761,16 @@ def _bot_step_toward(state, target, rng, blocked=frozenset()):
 def test_full_playthrough_simulation():
     import random
 
-    # Re-picked twice now (42->7 for M3's elite rolls, 7->16 for M4's gear
-    # affix/set rolls): every generate_item/generate_monster call added a
-    # new conditional rng draw, which shifts the ENTIRE rng stream for any
-    # fixed seed - the seed still plays fine, it just meets a different mix
-    # of monsters/loot along the way. Permadeath is legitimate (see the
-    # assertion note below); 16 just clears comfortably more than the
-    # required floor count so it isn't one shifted rng draw from flaking
-    # again next milestone.
-    state = GameState(seed=16)
+    # Re-picked three times now (42->7 M3 elite rolls, 7->16 M4 gear affix/
+    # set rolls, 16->20 the found-page lore corpus's new per-floor rng
+    # draw): every generate_item/generate_monster/generate_floor call added
+    # a new conditional rng draw, which shifts the ENTIRE rng stream for
+    # any fixed seed - the seed still plays fine, it just meets a different
+    # mix of monsters/loot along the way. Permadeath is legitimate (see the
+    # assertion note below); 20 clears floors=16/level=15, comfortably more
+    # than the required floor/level counts so it isn't one shifted rng draw
+    # from flaking again next milestone.
+    state = GameState(seed=20)
     state.new_game()
     assert state.floor is not None
     assert state.player.hp == state.player.max_hp
@@ -1312,6 +1313,90 @@ def test_bestiary_tracking_in_gamestate():
     print("OK: GameState tracks bestiary_seen/bestiary_kills/boss_kills during play")
 
 
+def test_lore_pages_corpus_and_generation():
+    from engine import lorepages
+
+    # Corpus sanity: 54 shippable fragments (56 written, minus the two
+    # reserved for the ARG - A-6, X-6), valid bands, no duplicate ids,
+    # every entry has real content.
+    assert len(lorepages.PAGES) == 54
+    ids = [p.id for p in lorepages.PAGES]
+    assert len(ids) == len(set(ids)), "duplicate lore page ids"
+    assert "A-6" not in ids and "X-6" not in ids, "ARG-reserved pages must not ship in-game"
+    for p in lorepages.PAGES:
+        assert p.band in (1, 2, 3, 4)
+        assert p.author and p.text
+    assert lorepages.PAGES_BY_ID["W-5"].author == "The Well"
+
+    assert lorepages.band_for_depth(1) == 1 and lorepages.band_for_depth(9) == 1
+    assert lorepages.band_for_depth(10) == 2 and lorepages.band_for_depth(19) == 2
+    assert lorepages.band_for_depth(20) == 3 and lorepages.band_for_depth(39) == 3
+    assert lorepages.band_for_depth(40) == 4 and lorepages.band_for_depth(100) == 4
+
+    # Floor generation: a page can spawn within its own band, respects the
+    # lore_found exclusion (this run), and never spawns on a boss floor.
+    found_one = False
+    for seed in range(1, 60):
+        floor = generate_floor(5, __import__("random").Random(seed), lore_found=set())
+        lore_items = [gi for gi in floor.ground_items if gi.item.category == "lore"]
+        if lore_items:
+            page = lorepages.PAGES_BY_ID[lore_items[0].item.lore_id]
+            assert page.band == 1, f"floor 5 (band I) spawned a band {page.band} page"
+            found_one = True
+    assert found_one, "expected at least one band-I page across 60 seeds at 40% chance"
+
+    rng = __import__("random").Random(1)
+    floor = generate_floor(41, rng, lore_found={"W-5"})
+    lore_items = [gi for gi in floor.ground_items if gi.item.category == "lore"]
+    if lore_items:
+        assert lore_items[0].item.lore_id != "W-5", "an already-found (this run) page must not repeat"
+
+    for seed in range(1, 30):
+        floor = generate_floor(C.BOSS_INTERVAL, __import__("random").Random(seed), lore_found=set())
+        assert not any(gi.item.category == "lore" for gi in floor.ground_items), \
+            "boss floors must never spawn a lore page"
+
+    # W-5's silent floor: found by sweeping seeds at a non-boss band-IV
+    # depth until the 1-in-7-ish roll lands on it specifically.
+    silent_floor = None
+    for seed in range(1, 400):
+        floor = generate_floor(41, __import__("random").Random(seed), lore_found=set())
+        lore_items = [gi for gi in floor.ground_items if gi.item.category == "lore"]
+        if lore_items and lore_items[0].item.lore_id == "W-5":
+            silent_floor = floor
+            break
+    assert silent_floor is not None, "expected to find a W-5 silent floor within 400 seeds"
+    assert not silent_floor.monsters and not silent_floor.traps and not silent_floor.chests
+    assert silent_floor.shop_pos is None and silent_floor.puzzle is None
+    assert len(silent_floor.ground_items) == 1
+    start = silent_floor.rooms[0].center
+    gi = silent_floor.ground_items[0]
+    assert abs(gi.x - start[0]) + abs(gi.y - start[1]) == 1, "the page must sit right in front of the player"
+    print("OK: 54-page found-page corpus is well-formed; floor generation respects bands/exclusion/"
+          "boss floors; W-5 silences its floor and sits right at the player's feet")
+
+
+def test_lore_journal_persistence():
+    tmp_dir = os.environ.get("TMPDIR", "/tmp")
+    journal_path = os.path.join(tmp_dir, "roguelike_smoke_test_lore_journal.json")
+    original_path = save_module.LORE_JOURNAL_PATH
+    save_module.LORE_JOURNAL_PATH = journal_path
+    try:
+        if os.path.exists(journal_path):
+            os.remove(journal_path)
+        assert save_module.load_lore_journal() == []
+        save_module.merge_lore_journal({"F-1", "S-3"})
+        assert save_module.load_lore_journal() == ["F-1", "S-3"]
+        # A second run's merge unions in new ids and keeps old ones found.
+        save_module.merge_lore_journal({"S-3", "H-2"})
+        assert save_module.load_lore_journal() == ["F-1", "H-2", "S-3"]
+    finally:
+        save_module.LORE_JOURNAL_PATH = original_path
+        if os.path.exists(journal_path):
+            os.remove(journal_path)
+    print("OK: lore journal persists found pages across runs as a plain union")
+
+
 def test_achievement_checks():
     from engine import achievements as achievements_module
 
@@ -1464,6 +1549,7 @@ def _state_fingerprint(state):
         "bestiary_seen": sorted(state.bestiary_seen),
         "bestiary_kills": json.dumps(state.bestiary_kills, sort_keys=True),
         "boss_kills": state.boss_kills,
+        "pages_found": sorted(state.pages_found),
         "tiles": ["".join(r) for r in state.floor.tiles],
         # boss_state (phase, cooldowns, pending ability, buffs - also used
         # by elites/kited regular monsters, see engine/bosses.py) is plain
@@ -1483,6 +1569,14 @@ def _state_fingerprint(state):
         # biome-dependent (M5), worth catching a desync in either kind or
         # triggered-state after a replay.
         "traps": sorted((t.x, t.y, t.kind, t.triggered) for t in state.floor.traps),
+        # Ground items were never fingerprinted at all before (a
+        # pre-existing gap this closes) - item ids are process-global
+        # counters like elsewhere in this function, so excluded. Item dict
+        # goes through json.dumps (not left as a raw dict) for the same
+        # reason boss_state/status_effects do above: a bare dict isn't
+        # safely comparable inside sorted()'s tuple keys.
+        "ground_items": sorted((gi.x, gi.y, json.dumps(item_key(gi.item), sort_keys=True))
+                               for gi in state.floor.ground_items),
         "chests": sorted((c.x, c.y, c.kind, c.gold,
                           tuple(i.name for i in c.items))
                          for c in state.floor.chests),
@@ -1847,6 +1941,8 @@ if __name__ == "__main__":
     test_seed_always_populated()
     test_speedrun_and_normal_victory_condition()
     test_bestiary_tracking_in_gamestate()
+    test_lore_pages_corpus_and_generation()
+    test_lore_journal_persistence()
     test_achievement_checks()
     test_bestiary_and_achievements_persistence()
     test_replay_fidelity_full_playthrough()

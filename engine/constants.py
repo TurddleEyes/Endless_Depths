@@ -52,6 +52,16 @@ PUZZLE_HARD_DEPTH = 16
 CHEST_CHANCE = 0.40         # chance a floor spawns a chest at all
 CHEST_SECOND_CHANCE = 0.20  # chance of a second chest, depth >= 10
 
+# --- Found-page lore pickups ------------------------------------------------
+# engine/lorepages.py's corpus is split into four depth bands; an eligible,
+# not-yet-found (this run) floor has this chance of spawning one page pickup.
+# Never on boss floors (kept focused on the fight) - see engine/dungeon.py.
+LORE_PAGE_CHANCE = 0.40
+LORE_BAND_I_MAX = 9      # floors 1-9
+LORE_BAND_II_MAX = 19    # floors 10-19
+LORE_BAND_III_MAX = 39   # floors 20-39
+# Band IV is everything above LORE_BAND_III_MAX (floor 40+)
+
 # --- Rarity tiers ---------------------------------------------------------
 RARITIES = [
     # name,        multiplier, weight, color
@@ -82,6 +92,7 @@ CATEGORY_COLORS = {
     "scroll": "#e0d356",
     "gold": "#f2c94c",
     "food": "#d9924a",
+    "lore": "#e0d356",
 }
 
 MONSTER_COLOR = "#ff6b6b"
@@ -127,3 +138,6 @@ MAX_RUN_HISTORY = 20
 # --- Bestiary + achievements (M6) ------------------------------------------
 BESTIARY_FILE = "bestiary.json"           # cross-run {name: {seen, kills}}
 ACHIEVEMENTS_FILE = "achievements.json"   # cross-run {id: date_unlocked}
+
+# --- Found-page lore journal -------------------------------------------
+LORE_JOURNAL_FILE = "lore_journal.json"   # cross-run list of found page ids

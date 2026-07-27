@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Endless Depths</title>
-<link rel="stylesheet" href="web/style.css?v=27">
+<link rel="stylesheet" href="web/style.css?v=28">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128481;</text></svg>">
 </head>
 <body>
@@ -79,6 +79,19 @@
       <button id="lore-back">&lt; Back</button>
       <button id="lore-next">Next &gt;</button>
     </div>
+    <button id="lore-journal-link">View Found Pages &rarr;</button>
+  </div>
+
+  <!-- Journal screen: found-page fragments picked up during play, grouped
+       by author - an author only appears once you've found one of theirs. -->
+  <div id="journal-screen" class="screen hidden">
+    <h2>JOURNAL</h2>
+    <div id="journal-progress" class="subtitle"></div>
+    <div class="list-details">
+      <ul id="journal-list" class="item-list"></ul>
+      <div class="details"><h3 id="journal-detail-name">Nothing here</h3><pre id="journal-detail-body"></pre></div>
+    </div>
+    <button id="journal-back">Back (Esc)</button>
   </div>
 
   <!-- Bestiary screen -->
@@ -189,6 +202,17 @@
     </div>
   </div>
 
+  <!-- Found-page popup (a torn page picked up mid-run) -->
+  <div id="lore-page-overlay" class="overlay hidden">
+    <div class="overlay-box puzzle-box">
+      <div class="overlay-header"><h2 id="lore-page-author">Found a Page</h2></div>
+      <pre id="lore-page-text" class="puzzle-prompt"></pre>
+      <div class="overlay-buttons">
+        <button id="lore-page-close">Close (Esc)</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Puzzle overlay (the sealed rune door) -->
   <div id="puzzle-overlay" class="overlay hidden">
     <div class="overlay-box puzzle-box">
@@ -262,6 +286,6 @@
 </div>
 </div>
 <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
-<script src="web/main.js?v=27"></script>
+<script src="web/main.js?v=28"></script>
 </body>
 </html>

@@ -528,6 +528,23 @@ def test_lore():
     print(f"OK: lore_json exposes {len(data['pages'])} pages")
 
 
+def test_lore_pages_bridge():
+    from engine import lorepages
+
+    catalog = json.loads(webbridge.lore_pages_catalog_json())
+    assert len(catalog) == 54
+    assert "A-6" not in catalog and "X-6" not in catalog
+    assert catalog["W-5"]["author"] == "The Well"
+    assert catalog["W-5"]["text"] == lorepages.PAGES_BY_ID["W-5"].text
+
+    webbridge.new_game()
+    webbridge.STATE.pages_found = {"F-1", "S-3"}
+    run_data = json.loads(webbridge.lore_journal_run_data_json())
+    assert run_data == ["F-1", "S-3"]
+    print(f"OK: lore_pages_catalog_json exposes all {len(catalog)} pages; "
+          "lore_journal_run_data_json reports this run's finds")
+
+
 def test_audio_synth():
     names = json.loads(webbridge.sfx_names_json())
     assert "hit" in names["sfx"] and "depths" in names["music"]
@@ -556,5 +573,6 @@ if __name__ == "__main__":
     test_all_engine_modules_shipped_to_browser()
     test_itch_zip_script_ships_everything_main_js_needs()
     test_lore()
+    test_lore_pages_bridge()
     test_audio_synth()
     print("\nAll web-bridge smoke tests passed.")

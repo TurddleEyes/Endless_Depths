@@ -66,6 +66,7 @@ FILES=(
     engine/shop.py
     engine/status.py
     engine/traits.py
+    engine/lorepages.py
     engine/world.py
     ui/__init__.py
     ui/spritedata.py

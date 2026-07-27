@@ -14,6 +14,7 @@ daily.json
 run_history.json
 bestiary.json
 achievements.json
+lore_journal.json
 
 # A player-imported texture pack (ui/app.py "Import Texture Pack" /
 # web's session-only equivalent) - personal, never shipped in the repo.

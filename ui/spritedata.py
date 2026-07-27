@@ -1353,6 +1353,7 @@ ITEM_KEYS = {
     "scroll": "scroll",
     "gold": "gold",
     "key": "key",
+    "lore": "scroll",  # found pages reuse the scroll sprite - no new art needed
 }
 
 # Tile-char -> sprite key for the new interactable tiles, shared by both

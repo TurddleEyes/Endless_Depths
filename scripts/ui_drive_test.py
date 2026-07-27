@@ -47,6 +47,7 @@ with open(os.path.join(_pack_dir, "monsters", "orc.png"), "wb") as f:
 os.environ[TP.PACK_ENV] = _pack_dir
 
 from engine import constants as C  # noqa: E402
+from engine import lorepages  # noqa: E402
 from engine import puzzles as puzzle_module  # noqa: E402
 from engine.dungeon import GroundItem  # noqa: E402
 from engine.entities import generate_monster_of, make_mimic  # noqa: E402
@@ -191,6 +192,47 @@ with zipfile.ZipFile(io.BytesIO(_exported)) as _zf:
     assert "manifest.json" in _zf.namelist() and "README.md" in _zf.namelist()
 print("OK: texture pack export/import hot-reloads the live sprite cache; "
       "reset removes it; exported .edtp is a valid STORED-only zip")
+
+# ----------------------------------------------------------------------
+# Found-page pickup (mid-run popup) + the Journal screen. Redirect
+# LORE_JOURNAL_PATH to a tmp file first - this test calls merge_lore_
+# journal directly (real persistence normally only happens at game-over/
+# victory), and must never touch the real repo's file.
+# ----------------------------------------------------------------------
+save_module.LORE_JOURNAL_PATH = os.path.join(_tmp, "lore_journal.json")
+
+
+def _has_lore_item(floor):
+    return any(gi.item.category == "lore" for gi in floor.ground_items)
+
+
+state = app.state
+assert skim_to(state, _has_lore_item), "expected a lore page within 80 floors"
+_gi = next(gi for gi in state.floor.ground_items if gi.item.category == "lore")
+_expected_id = _gi.item.lore_id
+_expected_author = lorepages.PAGES_BY_ID[_expected_id].author
+_move_key = stand_beside(state, _gi.x, _gi.y)
+key(app, _move_key)
+assert app.mode == "lore_page", "stepping onto a found page should open the popup"
+assert app.lore_page_author_label["text"] == _expected_author
+assert _expected_id in app.state.pages_found
+key(app, "Escape")
+assert app.mode == "play", "Escape should close the popup and return to play"
+
+save_module.merge_lore_journal(app.state.pages_found)
+app._open_journal()
+assert app.mode == "journal"
+_found_ids = {p.id for p in app.journal_panel.entries}
+assert _expected_id in _found_ids
+
+# Back to the active run (not the title screen) - the tests right after
+# this one assume mode=="play" continuing the same in-progress game.
+app._hide_all()
+app.mode = "play"
+app.play_frame.pack(expand=True)
+app._render()
+print("OK: found-page pickup opens the popup and returns to play on Escape; "
+      "the Journal screen lists the found page under its author")
 
 # ----------------------------------------------------------------------
 # Movement, inventory, settings

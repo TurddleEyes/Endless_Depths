@@ -20,6 +20,7 @@ from engine import constants as C
 from engine import puzzles as puzzle_module
 from engine import save as save_module
 from engine import achievements as achievements_module
+from engine import lorepages
 from engine.entities import MONSTER_TEMPLATES, base_template_name
 from engine.items import resolved_name
 from engine.world import GameState
@@ -112,6 +113,7 @@ class App(tk.Tk):
 
         self._build_title_screen()
         self._build_lore_screen()
+        self._build_journal_screen()
         self._build_bestiary_screen()
         self._build_achievements_screen()
         self._build_play_screen()
@@ -122,6 +124,7 @@ class App(tk.Tk):
         self._build_replay_picker()
         self._build_settings_overlay()
         self._build_puzzle_overlay()
+        self._build_lore_page_overlay()
 
         if self.settings.get("fullscreen_on"):
             self._apply_fullscreen(True)
@@ -660,6 +663,9 @@ class App(tk.Tk):
         self.lore_next_button = tk.Button(nav_row, text="Next >",
                                             command=lambda: self._lore_step(1), **btn_style)
         self.lore_next_button.pack(side="left", padx=6)
+        tk.Button(self.lore_frame, text="View Found Pages →", command=self._open_journal,
+                   font=T.UI_FONT, bg=T.BG, fg=T.TEXT_DIM, relief="flat",
+                   activebackground=T.ACCENT, activeforeground=T.BG).pack(pady=(14, 0))
 
     def _open_guide(self):
         """Open the delver's field manual (GUIDE.html at the repo root) in the
@@ -700,6 +706,74 @@ class App(tk.Tk):
             self.settings["seen_lore"] = True
             save_module.save_settings(self.settings)
         self._show_title()
+
+    # ------------------------------------------------------------------
+    # Journal: found-page fragments (engine/lorepages.py) picked up during
+    # play, persisted cross-run in lore_journal.json (engine/save.py) same
+    # as bestiary.json. Fully progressive - an author only shows up here
+    # once at least one of their pages has been found, so ItemListPanel's
+    # own "group by category" rendering (built for inventory/shop) already
+    # does exactly what's needed: pass the found pages pre-filtered and
+    # already in the corpus's natural author-grouped order.
+    # ------------------------------------------------------------------
+    def _build_journal_screen(self):
+        self.journal_frame = tk.Frame(self, bg=T.BG, width=860, height=680)
+        self.journal_frame.pack_propagate(False)
+        tk.Label(self.journal_frame, text="JOURNAL", font=T.HEADER_FONT,
+                  bg=T.BG, fg=T.ACCENT).pack(pady=(20, 4))
+        self.journal_progress_label = tk.Label(self.journal_frame, text="", font=T.UI_FONT,
+                                                  bg=T.BG, fg=T.TEXT_DIM)
+        self.journal_progress_label.pack(pady=(0, 10))
+        self.journal_panel = ItemListPanel(
+            self.journal_frame, formatter=lambda page: ("#e0d356", page.id, page.text.split("\n")),
+            rows=16, list_width=26, details_width_px=460)
+        self.journal_panel.pack(padx=20, pady=(0, 10))
+        tk.Button(self.journal_frame, text="Back (Esc)", command=self._show_title,
+                   font=T.UI_FONT_BOLD, bg=T.PANEL_BG, fg=T.TEXT_MAIN, relief="flat",
+                   activebackground=T.ACCENT, activeforeground=T.BG).pack(pady=(0, 20))
+
+    def _open_journal(self):
+        self._hide_all()
+        self.mode = "journal"
+        found = set(save_module.load_lore_journal())
+        pages = [p for p in lorepages.PAGES if p.id in found]
+        self.journal_panel.set_items(
+            pages, labels=[p.id for p in pages], colors=["#e0d356"] * len(pages),
+            categories=[p.author for p in pages])
+        # No denominator on purpose - "fully progressive" means the corpus's
+        # total size stays a mystery too, not just which authors exist.
+        self.journal_progress_label.configure(text=f"Pages found: {len(pages)}")
+        self.journal_frame.pack(expand=True)
+
+    # ------------------------------------------------------------------
+    # Found-page popup: a small read-only overlay, opened from _drain_events
+    # the instant a "lore_page" pickup event fires mid-run. Mirrors
+    # _build_puzzle_overlay's shape (title + body + one Close button) but
+    # with none of the puzzle machinery - there's nothing to answer here.
+    # ------------------------------------------------------------------
+    def _build_lore_page_overlay(self):
+        self.lore_page_frame = tk.Frame(self, bg=T.PANEL_BG, highlightthickness=2,
+                                          highlightbackground=T.ACCENT)
+        f = self.lore_page_frame
+        self.lore_page_author_label = tk.Label(f, text="", font=T.HEADER_FONT,
+                                                  bg=T.PANEL_BG, fg=T.ACCENT, wraplength=460)
+        self.lore_page_author_label.pack(padx=24, pady=(12, 6))
+        self.lore_page_text_label = tk.Label(f, text="", font=T.UI_FONT, bg=T.PANEL_BG,
+                                                fg=T.TEXT_MAIN, justify="left", wraplength=460)
+        self.lore_page_text_label.pack(padx=24, pady=(0, 10))
+        tk.Button(f, text="Close (Esc)", command=self._close_lore_page_popup,
+                   font=T.UI_FONT_BOLD, bg=T.BG, fg=T.TEXT_MAIN, relief="flat",
+                   activebackground=T.ACCENT, activeforeground=T.BG).pack(pady=(0, 14))
+
+    def _open_lore_page_popup(self, author: str, text: str):
+        self.lore_page_author_label.configure(text=author)
+        self.lore_page_text_label.configure(text=text)
+        self.lore_page_frame.place(relx=0.5, rely=0.5, anchor="center")
+        self.mode = "lore_page"
+
+    def _close_lore_page_popup(self):
+        self.lore_page_frame.place_forget()
+        self.mode = "play"
 
     # ------------------------------------------------------------------
     # Bestiary (M6) - a sprite grid over MONSTER_TEMPLATES, backed by the
@@ -1078,7 +1152,7 @@ class App(tk.Tk):
     # Screen switching
     # ------------------------------------------------------------------
     def _hide_all(self):
-        for frame in (self.title_frame, self.lore_frame, self.play_frame,
+        for frame in (self.title_frame, self.lore_frame, self.journal_frame, self.play_frame,
                        self.gameover_frame, self.victory_frame,
                        self.bestiary_frame, self.achievements_frame):
             frame.pack_forget()
@@ -1087,6 +1161,7 @@ class App(tk.Tk):
         self.replay_picker_frame.place_forget()
         self.settings_frame.place_forget()
         self.puzzle_frame.place_forget()
+        self.lore_page_frame.place_forget()
 
     def _show_title(self):
         self._hide_all()
@@ -1249,6 +1324,7 @@ class App(tk.Tk):
         (unlike _record_normal_mode_run's leaderboard, which is normal/
         daily-only). Returns newly-unlocked Achievement objects, if any."""
         save_module.merge_bestiary(self.state.bestiary_seen, self.state.bestiary_kills)
+        save_module.merge_lore_journal(self.state.pages_found)
         ctx = {
             "depth_reached": self.state.depth, "level": self.state.player.level,
             "gold": self.state.player.gold, "kills": self.state.player.kills,
@@ -1547,6 +1623,10 @@ class App(tk.Tk):
                 if index < len(self._puzzle_buttons):
                     self._puzzle_press(index)
             return
+        if self.mode == "lore_page":
+            if event.keysym in ("Escape", "Return", "space"):
+                self._close_lore_page_popup()
+            return
         if self.mode == "play":
             self._handle_play_key(event)
         elif self.mode == "inventory":
@@ -1611,7 +1691,7 @@ class App(tk.Tk):
                 self._lore_step(-1)
             elif ks == "Escape":
                 self._finish_lore()
-        elif self.mode in ("bestiary", "achievements"):
+        elif self.mode in ("bestiary", "achievements", "journal"):
             if event.keysym == "Escape":
                 self._show_title()
         elif self.mode == "gameover":
@@ -1732,6 +1812,9 @@ class App(tk.Tk):
                 self.audio.play("gold")
             elif et == "pickup":
                 self.audio.play("pickup")
+            elif et == "lore_page":
+                self.audio.play("pickup")
+                self._open_lore_page_popup(ev["author"], ev["text"])
             elif et == "step":
                 self.audio.play("step")
             elif et == "drop":

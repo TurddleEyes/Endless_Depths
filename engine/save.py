@@ -29,6 +29,7 @@ DAILY_PATH = os.path.join(_BASE_DIR, C.DAILY_FILE)
 RUN_HISTORY_PATH = os.path.join(_BASE_DIR, C.RUN_HISTORY_FILE)
 BESTIARY_PATH = os.path.join(_BASE_DIR, C.BESTIARY_FILE)
 ACHIEVEMENTS_PATH = os.path.join(_BASE_DIR, C.ACHIEVEMENTS_FILE)
+LORE_JOURNAL_PATH = os.path.join(_BASE_DIR, C.LORE_JOURNAL_FILE)
 
 
 def load_settings() -> dict:
@@ -194,6 +195,30 @@ def merge_bestiary(seen, kills: dict) -> dict:
         entry["kills"] = entry.get("kills", 0) + count
     try:
         with open(BESTIARY_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except OSError:
+        pass
+    return data
+
+
+def load_lore_journal() -> list:
+    try:
+        with open(LORE_JOURNAL_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def merge_lore_journal(pages_found) -> list:
+    """Folds one run's newly-found page ids into the PERSISTENT cross-run
+    lore journal - flushed once at run-end, same cadence as
+    merge_bestiary. A page, once found, stays found (plain union)."""
+    found = set(load_lore_journal())
+    found |= set(pages_found)
+    data = sorted(found)
+    try:
+        with open(LORE_JOURNAL_PATH, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
     except OSError:
         pass

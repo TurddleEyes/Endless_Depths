@@ -49,6 +49,11 @@ class Item:
     # be unequipped/dropped until a Scroll of Remove Curse lifts it.
     buc: str = "uncursed"             # "blessed" | "uncursed" | "cursed"
     buc_known: bool = False
+    # -- Found pages (category == "lore" only) ----------------------------
+    # The engine/lorepages.py id to look up on pickup - never shown/sorted/
+    # equipped like a normal item; _pickup_at() consumes it straight into
+    # GameState.pages_found instead of the inventory.
+    lore_id: str = ""
 
     @property
     def color(self) -> str:
@@ -328,6 +333,14 @@ def make_key(name: str) -> Item:
     Hidden Key puzzle door. Worthless to merchants - their value is the
     lock they open."""
     return Item(_new_id(), name, "key", "~", "uncommon", 0)
+
+
+def make_lore_page(page) -> Item:
+    """A found-page pickup (engine/lorepages.py:LorePage) - consumed
+    straight into GameState.pages_found on pickup, never carried in the
+    inventory or sold, so rarity/value are nominal."""
+    return Item(_new_id(), f"Torn Page ({page.author})", "lore", "?",
+                "common", 0, lore_id=page.id)
 
 
 def make_cure_potion(depth: int) -> Item:

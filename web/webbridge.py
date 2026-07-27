@@ -17,6 +17,7 @@ from engine.entities import base_template_name, MONSTER_TEMPLATES
 from engine.items import resolved_name
 from engine.world import GameState
 from engine import puzzles as puzzle_module
+from engine import lorepages as lorepages_module
 from engine import replay as replay_module
 from engine.save import daily_seed as _daily_seed
 from ui import spritedata as S
@@ -90,6 +91,21 @@ def bestiary_run_data_json() -> str:
     """This run's newly-seen breeds/kill counts (M6) - the JS caller merges
     this into its own PERSISTENT localStorage bestiary at run-end."""
     return json.dumps({"seen": sorted(STATE.bestiary_seen), "kills": STATE.bestiary_kills})
+
+
+def lore_journal_run_data_json() -> str:
+    """This run's newly-found page ids - the JS caller merges this into its
+    own PERSISTENT localStorage journal at run-end, same pattern as
+    bestiary_run_data_json above."""
+    return json.dumps(sorted(STATE.pages_found))
+
+
+def lore_pages_catalog_json() -> str:
+    """The full 54-page found-page catalog (id -> author/text) - static,
+    fetched once. The Journal screen cross-references this against the
+    localStorage found-id list to know what to render."""
+    return json.dumps({p.id: {"author": p.author, "text": p.text}
+                        for p in lorepages_module.PAGES})
 
 
 def achievements_defs_json() -> str:
