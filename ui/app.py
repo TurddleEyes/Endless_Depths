@@ -1521,6 +1521,14 @@ class App(tk.Tk):
             elif et == "monster_status_tick":
                 color = "#e05656" if ev.get("status") == "burn" else "#c94a4a"
                 self._add_fx("num", x=ev["x"], y=ev["y"], text=str(ev["dmg"]), color=color)
+            elif et == "monster_status_applied":
+                status = ev.get("status")
+                self.audio.play("splat")
+                color = "#e05656" if status == "burn" else "#c94a4a"
+                self._add_fx("num", x=ev["x"], y=ev["y"], text=f"{status}!", color=color)
+            elif et == "lifesteal":
+                self.audio.play("potion")
+                self._add_fx("num", x=p.x, y=p.y, text=f"+{ev['amount']}", color="#58c058")
             elif et == "descend":
                 self.audio.play("stairs")
                 if ev.get("boss_floor"):

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from engine import constants as C
+from engine.items import GEAR_SETS
 from engine.shop import SELL_RATIO
 
 RARITY_COLORS = {name: color for name, _mult, _weight, color in C.RARITIES}
@@ -67,12 +68,44 @@ def _diff_text(diff: int) -> str:
     return "Same as equipped."
 
 
+def _affix_lines(item) -> list:
+    """Weapon/armor/accessory affix stat lines (M4) - empty for a plain item."""
+    lines = []
+    if item.lifesteal_pct:
+        lines.append(f"Life steal: {item.lifesteal_pct:.0%}")
+    if item.crit_chance_bonus:
+        lines.append(f"Crit chance: +{item.crit_chance_bonus:.0%}")
+    if item.on_hit_status:
+        lines.append(f"{item.on_hit_chance:.0%} chance to inflict {item.on_hit_status} on hit")
+    if item.resist_status:
+        lines.append(f"{item.resist_pct:.0%} chance to resist {item.resist_status}")
+    return lines
+
+
+def _set_lines(item, player) -> list:
+    if not item.set_name:
+        return []
+    equipped_count = sum(
+        1 for eq in (player.equipped_weapon, player.equipped_armor, player.equipped_accessory)
+        if eq and eq.set_name == item.set_name
+    )
+    lines = [f"Set: {item.set_name} ({equipped_count}/3 equipped)"]
+    for tier in (2, 3):
+        tier_data = GEAR_SETS.get(item.set_name, {}).get(tier)
+        if tier_data:
+            mark = "x" if equipped_count >= tier else " "
+            lines.append(f"  [{mark}] {tier} pieces: {tier_data['desc']}")
+    return lines
+
+
 def describe_item(item, player) -> list:
     """Stat lines for the details panel (title/name is rendered separately)."""
     lines = [f"{item.rarity.title()} {item.category}"]
 
     if item.category == "weapon":
         lines.append(f"Attack: +{item.bonus_attack}")
+        lines.extend(_affix_lines(item))
+        lines.extend(_set_lines(item, player))
         eq = player.equipped_weapon
         if eq is item:
             lines.append("Currently equipped.")
@@ -84,6 +117,8 @@ def describe_item(item, player) -> list:
 
     elif item.category == "armor":
         lines.append(f"Defense: +{item.bonus_defense}")
+        lines.extend(_affix_lines(item))
+        lines.extend(_set_lines(item, player))
         eq = player.equipped_armor
         if eq is item:
             lines.append("Currently equipped.")
@@ -100,6 +135,8 @@ def describe_item(item, player) -> list:
         if item.bonus_defense:
             parts.append(f"Defense +{item.bonus_defense}")
         lines.append(", ".join(parts) if parts else "No stat bonuses")
+        lines.extend(_affix_lines(item))
+        lines.extend(_set_lines(item, player))
         eq = player.equipped_accessory
         if eq is item:
             lines.append("Currently equipped.")

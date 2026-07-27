@@ -1346,6 +1346,14 @@ function handleEvents(events) {
         if (ev.type === "monster_status_tick") {
           floatNum(ev.x, ev.y, String(ev.dmg), ev.status === "burn" ? "#e05656" : "#c94a4a");
         }
+        if (ev.type === "monster_status_applied") {
+          audio.play("splat");
+          floatNum(ev.x, ev.y, `${ev.status}!`, ev.status === "burn" ? "#e05656" : "#c94a4a");
+        }
+        if (ev.type === "lifesteal") {
+          audio.play("potion");
+          floatNum(snap.player.x, snap.player.y, `+${ev.amount}`, "#58c058");
+        }
         if (ev.type === "strength") floatNum(snap.player.x, snap.player.y, "+STR", "#e0a83a");
     }
   }

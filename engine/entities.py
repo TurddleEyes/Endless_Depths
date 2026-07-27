@@ -6,7 +6,7 @@ from typing import Optional
 
 from . import constants as C
 from . import status as status_module
-from .items import Item
+from .items import Item, set_bonus_mult
 
 
 @dataclass
@@ -36,7 +36,7 @@ class Player:
             if eq:
                 bonus += eq.bonus_attack
         base = self.base_attack + bonus
-        mult = status_module.stat_mult(self.status_effects, "attack")
+        mult = status_module.stat_mult(self.status_effects, "attack") * set_bonus_mult(self, "attack")
         return max(1, round(base * mult))
 
     @property
@@ -46,7 +46,7 @@ class Player:
             if eq:
                 bonus += eq.bonus_defense
         base = self.base_defense + bonus
-        mult = status_module.stat_mult(self.status_effects, "defense")
+        mult = status_module.stat_mult(self.status_effects, "defense") * set_bonus_mult(self, "defense")
         return max(1, round(base * mult))
 
     def is_alive(self) -> bool:

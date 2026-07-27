@@ -1,6 +1,7 @@
 """Item definitions and procedural item generation."""
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -28,6 +29,18 @@ class Item:
     effect: Optional[str] = None  # heal, strength, teleport, enchant, cure
     magnitude: int = 0
     quantity: int = 1
+    # -- Gear affixes (weapon/armor/accessory only) -----------------------
+    # "" / 0.0 means "no affix". All rolled at generation time through the
+    # passed rng (see _roll_offense_affix/_roll_defense_affix below), so
+    # they're replay-safe like everything else. Pre-M4 saves round-trip
+    # through from_dict with every affix at its default, unaffected.
+    lifesteal_pct: float = 0.0       # weapon: % of damage dealt healed back
+    crit_chance_bonus: float = 0.0   # weapon: added to the global crit chance
+    on_hit_status: str = ""          # weapon: "" | poison | burn | bleed - applied to the MONSTER
+    on_hit_chance: float = 0.0
+    resist_status: str = ""          # armor/accessory: "" | poison | burn | bleed
+    resist_pct: float = 0.0          # armor/accessory: % chance to resist that status entirely
+    set_name: str = ""               # "" = not part of a set; else a GEAR_SETS key
 
     @property
     def color(self) -> str:
@@ -68,6 +81,93 @@ _CATEGORY_WEIGHTS = [
     ("gold", 12),
 ]
 
+# -- Gear affixes and sets --------------------------------------------------
+# Higher rarity = more likely to roll ANY affix at all; common items stay
+# plain. A set roll is checked first and, if it hits, REPLACES the item's
+# name with the set's own named piece instead of an affix - a set item is
+# special because of what it IS, not an extra prefix bolted onto a random
+# roll, so set and per-item affixes never both land on the same item.
+_AFFIX_CHANCE = {"common": 0.0, "uncommon": 0.06, "rare": 0.15, "epic": 0.30, "legendary": 0.55}
+_SET_CHANCE = {"common": 0.0, "uncommon": 0.0, "rare": 0.05, "epic": 0.12, "legendary": 0.25}
+
+_ON_HIT_PREFIX = {"poison": "Venomous", "burn": "Flaming", "bleed": "Serrated"}
+_RESIST_PREFIX = {"poison": "Warded", "burn": "Fireproof", "bleed": "Reinforced"}
+
+# Only 3 equip slots exist (weapon/armor/accessory), so "2-piece"/"3-piece"
+# (not the usual 2/4-piece) are the only tiers that make sense here. Each
+# tier's mult keys are read by set_bonus_mult() below and applied on top of
+# Player.attack_power/defense_power (see engine/entities.py) - a flat
+# multiplier stacking with individual item stats and status buffs, not a
+# replacement for them.
+GEAR_SETS = {
+    "Berserker": {
+        "weapon": "Berserker's Axe", "armor": "Berserker's Hide", "accessory": "Berserker's Fang",
+        2: {"attack_mult": 1.10, "desc": "+10% Attack"},
+        3: {"attack_mult": 1.25, "desc": "+25% Attack"},
+    },
+    "Warden": {
+        "weapon": "Warden's Blade", "armor": "Warden's Bulwark", "accessory": "Warden's Seal",
+        2: {"defense_mult": 1.10, "desc": "+10% Defense"},
+        3: {"defense_mult": 1.25, "desc": "+25% Defense"},
+    },
+    "Shadow": {
+        "weapon": "Shadow Dagger", "armor": "Shadow Wrap", "accessory": "Shadow Charm",
+        2: {"attack_mult": 1.05, "defense_mult": 1.05, "desc": "+5% Attack, +5% Defense"},
+        3: {"attack_mult": 1.15, "defense_mult": 1.15, "desc": "+15% Attack, +15% Defense"},
+    },
+}
+
+
+def set_bonus_mult(player, kind: str) -> float:
+    """Combined attack/defense multiplier from equipped gear sharing a
+    GEAR_SETS name - "attack" or "defense". Duck-typed on `player` (just
+    needs the three equipped_* attributes), so this works for the real
+    Player without entities.py importing anything back from here."""
+    names = [eq.set_name for eq in
+             (player.equipped_weapon, player.equipped_armor, player.equipped_accessory)
+             if eq and eq.set_name]
+    if not names:
+        return 1.0
+    set_name, count = Counter(names).most_common(1)[0]
+    tiers = GEAR_SETS.get(set_name, {})
+    mult = 1.0
+    for tier in (2, 3):
+        if count >= tier and tier in tiers:
+            mult = tiers[tier].get(f"{kind}_mult", mult)
+    return mult
+
+
+def _roll_offense_affix(item, rng) -> None:
+    kind = rng.choice(["lifesteal", "crit", "on_hit"])
+    if kind == "lifesteal":
+        item.lifesteal_pct = round(rng.uniform(0.08, 0.18), 2)
+        prefix = "Vampiric"
+    elif kind == "crit":
+        item.crit_chance_bonus = round(rng.uniform(0.08, 0.18), 2)
+        prefix = "Keen"
+    else:
+        item.on_hit_status = rng.choice(["poison", "burn", "bleed"])
+        item.on_hit_chance = round(rng.uniform(0.12, 0.22), 2)
+        prefix = _ON_HIT_PREFIX[item.on_hit_status]
+    item.name = f"{prefix} {item.name}"
+
+
+def _roll_defense_affix(item, rng) -> None:
+    item.resist_status = rng.choice(["poison", "burn", "bleed"])
+    item.resist_pct = round(rng.uniform(0.25, 0.45), 2)
+    item.name = f"{_RESIST_PREFIX[item.resist_status]} {item.name}"
+
+
+def _maybe_tag_set(item, category: str, rarity_name: str, rng) -> bool:
+    """Returns True if `item` became a set piece (name replaced, set_name
+    set) - callers should skip rolling a per-item affix when this happens."""
+    if rng.random() >= _SET_CHANCE.get(rarity_name, 0.0):
+        return False
+    set_name = rng.choice(list(GEAR_SETS))
+    item.name = GEAR_SETS[set_name][category]
+    item.set_name = set_name
+    return True
+
 
 def _pick_rarity(rng, depth: int) -> tuple:
     # Higher depth nudges the odds toward better rarities without a hard cap.
@@ -96,15 +196,23 @@ def generate_item(depth: int, rng, quality_bonus: float = 1.0) -> Item:
         name = rng.choice(_WEAPON_NAMES)
         bonus_attack = max(1, round((2 + depth * 0.8) * mult))
         value = round(10 * scale * mult)
-        return Item(_new_id(), f"{rarity_name.title()} {name}", category, "/", rarity_name,
+        item = Item(_new_id(), f"{rarity_name.title()} {name}", category, "/", rarity_name,
                      value, bonus_attack=bonus_attack)
+        if not _maybe_tag_set(item, "weapon", rarity_name, rng):
+            if rng.random() < _AFFIX_CHANCE.get(rarity_name, 0.0):
+                _roll_offense_affix(item, rng)
+        return item
 
     if category == "armor":
         name = rng.choice(_ARMOR_NAMES)
         bonus_defense = max(1, round((1 + depth * 0.6) * mult))
         value = round(9 * scale * mult)
-        return Item(_new_id(), f"{rarity_name.title()} {name}", category, "[", rarity_name,
+        item = Item(_new_id(), f"{rarity_name.title()} {name}", category, "[", rarity_name,
                      value, bonus_defense=bonus_defense)
+        if not _maybe_tag_set(item, "armor", rarity_name, rng):
+            if rng.random() < _AFFIX_CHANCE.get(rarity_name, 0.0):
+                _roll_defense_affix(item, rng)
+        return item
 
     if category == "accessory":
         name = rng.choice(_ACCESSORY_NAMES)
@@ -115,8 +223,15 @@ def generate_item(depth: int, rng, quality_bonus: float = 1.0) -> Item:
         if bonus_attack == 0 and bonus_defense == 0:
             bonus_attack = 1
         value = round(12 * scale * mult)
-        return Item(_new_id(), f"{rarity_name.title()} {name}", category, "=", rarity_name,
+        item = Item(_new_id(), f"{rarity_name.title()} {name}", category, "=", rarity_name,
                      value, bonus_attack=bonus_attack, bonus_defense=bonus_defense)
+        if not _maybe_tag_set(item, "accessory", rarity_name, rng):
+            if rng.random() < _AFFIX_CHANCE.get(rarity_name, 0.0):
+                if rng.random() < 0.5:
+                    _roll_offense_affix(item, rng)
+                else:
+                    _roll_defense_affix(item, rng)
+        return item
 
     if category == "potion":
         name, effect, base_mag = rng.choice(_POTION_TYPES)

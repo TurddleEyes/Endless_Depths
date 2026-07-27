@@ -214,7 +214,7 @@ class GameState:
             if self.player.hp <= 0:
                 self._die()
         elif trap.kind == "poison":
-            self._apply_poison(dmg=max(1, 1 + self.depth // 6))
+            self._afflict_player("poison", dmg=max(1, 1 + self.depth // 6))
             self._log("A cloud of toxic gas bursts from a hidden vent!")
             self._emit("trap", kind="poison", x=trap.x, y=trap.y)
         elif trap.kind == "teleport":
@@ -223,13 +223,28 @@ class GameState:
             self._teleport_player()
             self._emit("teleport")
 
-    def _apply_poison(self, dmg: int):
-        # Poison never wears off on its own - only a Potion of Cure (or
-        # dying) ends it. Re-poisoning just keeps the strongest dose (see
-        # engine/status.py: add_effect handles the merge).
-        is_new = status_module.add_effect(self.player.status_effects, {"type": "poison", "dmg": dmg})
+    def _afflict_player(self, status_type: str, dmg: int) -> bool:
+        """Applies an ailment through engine/status.py, after checking
+        equipped armor/accessory resistance (M4 affix). Returns True if it
+        actually landed - poison never wears off on its own (only a Potion
+        of Cure or dying ends it), and re-applying it just keeps the
+        strongest dose (see engine/status.py: add_effect handles the merge)."""
+        if self._player_resists(status_type):
+            self._log(f"Your gear wards off the {status_type}!")
+            return False
+        is_new = status_module.add_effect(self.player.status_effects, {"type": status_type, "dmg": dmg})
         if is_new:
-            self._emit("poisoned")
+            if status_type == "poison":
+                self._emit("poisoned")
+            else:
+                self._emit("status_applied", status=status_type)
+        return True
+
+    def _player_resists(self, status_type: str) -> bool:
+        for eq in (self.player.equipped_armor, self.player.equipped_accessory):
+            if eq and eq.resist_status == status_type and self.rng.random() < eq.resist_pct:
+                return True
+        return False
 
     def _set_tile(self, x: int, y: int, tile: str):
         """All mid-floor map mutations go through here so the web renderer
@@ -272,7 +287,7 @@ class GameState:
                 self._log(f"A dart shoots from the lid! You take {damage} damage.")
                 self._emit("trap", kind="spike", x=x, y=y, dmg=damage)
             else:
-                self._apply_poison(dmg=max(1, 1 + self.depth // 6))
+                self._afflict_player("poison", dmg=max(1, 1 + self.depth // 6))
                 self._log("Noxious gas hisses from the chest!")
                 self._emit("trap", kind="poison", x=x, y=y)
             if self.player.hp <= 0:
@@ -311,13 +326,28 @@ class GameState:
             self._emit("pickup", toast=item.display_name(), cat="item")
 
     def _player_attack(self, monster):
+        weapon = self.player.equipped_weapon
+        crit_bonus = weapon.crit_chance_bonus if weapon else 0.0
         damage, crit, msg = resolve_attack(
             "You", monster.name, self.player.attack_power,
-            boss_module.effective_defense(monster), self.rng
+            boss_module.effective_defense(monster), self.rng,
+            crit_chance_bonus=crit_bonus,
         )
         monster.hp -= damage
         self._log(msg)
         self._emit("hit", x=monster.x, y=monster.y, dmg=damage, crit=crit)
+        if weapon and weapon.lifesteal_pct and damage > 0:
+            healed = min(round(damage * weapon.lifesteal_pct), self.player.max_hp - self.player.hp)
+            if healed > 0:
+                self.player.hp += healed
+                self._emit("lifesteal", amount=healed)
+        if weapon and weapon.on_hit_status and monster.is_alive() and self.rng.random() < weapon.on_hit_chance:
+            # Applied to the MONSTER, not the player - this is the payoff of
+            # M3's Monster.status_effects foundation (nothing used it until
+            # now). Same damage formula the melee traits use (engine/traits.py).
+            proc_dmg = max(1, 1 + self.depth // 8)
+            status_module.add_effect(monster.status_effects, {"type": weapon.on_hit_status, "dmg": proc_dmg})
+            self._emit("monster_status_applied", x=monster.x, y=monster.y, status=weapon.on_hit_status)
         if not monster.is_alive():
             self._kill_monster(monster)
 
@@ -775,14 +805,9 @@ class GameState:
 
     def _apply_monster_proc(self, monster, trait):
         dmg = max(1, trait.proc_dmg_flat + self.depth // trait.proc_dmg_div)
-        is_new = status_module.add_effect(self.player.status_effects, {"type": trait.proc_type, "dmg": dmg})
-        flavor = self._PROC_FLAVOR.get(trait.proc_type, "attack leaves something behind!")
-        self._log(f"The {monster.name}'s {flavor}")
-        if is_new:
-            if trait.proc_type == "poison":
-                self._emit("poisoned")
-            else:
-                self._emit("status_applied", status=trait.proc_type)
+        if self._afflict_player(trait.proc_type, dmg):
+            flavor = self._PROC_FLAVOR.get(trait.proc_type, "attack leaves something behind!")
+            self._log(f"The {monster.name}'s {flavor}")
 
     def _apply_boss_result(self, monster, result) -> bool:
         """Applies one BossTurnResult from engine/bosses.py. Returns True if
@@ -805,7 +830,7 @@ class GameState:
                 self._die()
                 return True
         if result.poison:
-            self._apply_poison(dmg=max(1, 1 + self.depth // 8))
+            self._afflict_player("poison", dmg=max(1, 1 + self.depth // 8))
         if result.minion_count:
             self._spawn_boss_minions(monster, result.minion_name, result.minion_count)
         return True
