@@ -18,7 +18,8 @@ from .combat import resolve_attack
 from .dungeon import generate_floor, start_position, Chest, GroundItem
 from .entities import Player, generate_monster, generate_monster_of, make_mimic
 from .fov import compute_fov
-from .items import generate_item, use_item as apply_item_effect
+from .items import (build_item_identity, generate_item, identity_key,
+                     resolved_name, use_item as apply_item_effect)
 from . import puzzles as puzzle_module
 from . import shop as shop_module
 from . import status as status_module
@@ -99,6 +100,10 @@ class GameState:
         self.game_over = False
         self.pending_shop = False
         self.pending_puzzle = False
+        # Per-run cosmetic alias for unidentified potions/scrolls (M4). Its
+        # own dedicated rng derived from the seed, NOT self.rng - purely
+        # cosmetic, never touches the gameplay rng stream.
+        self.item_identity = build_item_identity(self.seed)
 
     def _record(self, code: str, *params):
         self.action_log.append([code, *params] if params else [code])
@@ -301,7 +306,7 @@ class GameState:
                 total_gold += item.quantity
             else:
                 self.player.inventory.append(item)
-                loot.append(item.display_name())
+                loot.append(resolved_name(item, self.item_identity, self.player.identified))
         self.player.gold += total_gold
         if total_gold:
             loot.append(f"{total_gold} gold")
@@ -322,8 +327,9 @@ class GameState:
             self._emit("gold", toast=f"+{item.quantity} gold", cat="gold")
         else:
             self.player.inventory.append(item)
-            self._log(f"You pick up {item.display_name()}.")
-            self._emit("pickup", toast=item.display_name(), cat="item")
+            name = resolved_name(item, self.item_identity, self.player.identified)
+            self._log(f"You pick up {name}.")
+            self._emit("pickup", toast=name, cat="item")
 
     def _player_attack(self, monster):
         weapon = self.player.equipped_weapon
@@ -400,6 +406,14 @@ class GameState:
         # Replays reference items by list index (item.id is a process-global
         # counter and not reproducible across runs).
         self._record("u", self.player.inventory.index(item))
+        # Using a potion/scroll IS how you identify its whole effect type -
+        # every item sharing this effect reveals its true name from here on.
+        newly_identified = False
+        alias = None
+        if item.category in ("potion", "scroll") and identity_key(item) not in self.player.identified:
+            newly_identified = True
+            alias = resolved_name(item, self.item_identity, self.player.identified)
+            self.player.identified.add(identity_key(item))
         msg = apply_item_effect(self.player, item)
         if msg == "__TELEPORT__":
             self._teleport_player()
@@ -425,22 +439,53 @@ class GameState:
                         "cure": "cure"}.get(item.effect, "potion"))
         elif item.category == "scroll":
             self._emit("enchant" if item.effect == "enchant" else "scroll")
+        if newly_identified:
+            self._log(f"The {alias} was a {item.display_name()}!")
         self._log(msg)
         if item.category in ("potion", "scroll"):
             self.player.inventory.remove(item)
         self._end_turn()
 
+    def _cursed_slot_item(self, item):
+        """The currently-equipped item `item` would displace, if that
+        current item is cursed (and thus can't be removed to make room)."""
+        current = {"weapon": self.player.equipped_weapon,
+                   "armor": self.player.equipped_armor,
+                   "accessory": self.player.equipped_accessory}.get(item.category)
+        if current is not None and current is not item and current.buc == "cursed":
+            return current
+        return None
+
     def equip_item(self, item):
         if item not in self.player.inventory:
             return
         self._record("e", self.player.inventory.index(item))
+        blocking = self._cursed_slot_item(item)
+        if blocking is not None:
+            self._log(f"You can't remove the {blocking.name} to equip something else - it's cursed!")
+            return
         self._log(self.player.equip(item))
+        # Wearing/wielding IS how a cursed or blessed item's beatitude gets
+        # discovered - stats themselves were always visible, only this was hidden.
+        if not item.buc_known:
+            item.buc_known = True
+            if item.buc == "cursed":
+                self._log("A malevolent force seizes the item - you can't remove it!")
+                self._emit("cursed_equip")
+            elif item.buc == "blessed":
+                self._log("The item glimmers with a faint, protective light.")
+                self._emit("blessed_equip")
         self._emit("equip", toast=f"Equipped {item.name}", cat="equip")
 
     def drop_item(self, item):
         if item not in self.player.inventory:
             return
         self._record("d", self.player.inventory.index(item))
+        equipped = item in (self.player.equipped_weapon, self.player.equipped_armor,
+                             self.player.equipped_accessory)
+        if equipped and item.buc == "cursed":
+            self._log(f"The {item.name} won't come off - it's cursed!")
+            return
         if self.player.equipped_weapon is item:
             self.player.equipped_weapon = None
         if self.player.equipped_armor is item:
@@ -567,7 +612,7 @@ class GameState:
         # No safe tile beside the door: tribute goes straight to your hands.
         self.player.inventory.extend(loot)
         self.player.gold += gold
-        names = ", ".join(i.display_name() for i in loot)
+        names = ", ".join(resolved_name(i, self.item_identity, self.player.identified) for i in loot)
         self._log(f"Tribute spills from the dissolving door: {names} and {gold} gold!")
 
     def _puzzle_fail(self):

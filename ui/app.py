@@ -19,6 +19,7 @@ from engine import constants as C
 from engine import puzzles as puzzle_module
 from engine import save as save_module
 from engine.entities import base_template_name
+from engine.items import resolved_name
 from engine.world import GameState
 from engine.replay import (ReplayPlayer, build_replay_dict, replay_from_text,
                             replay_to_code)
@@ -1764,7 +1765,7 @@ class App(tk.Tk):
     # Inventory overlay
     # ------------------------------------------------------------------
     def _inventory_formatter(self, item):
-        title = item.display_name() + self._equip_tag(item)
+        title = self._display_name(item) + self._equip_tag(item)
         lines = describe_item(item, self.state.player)
         lines.append(f"Sells for {sell_price(item)} gold.")
         return RARITY_COLORS.get(item.rarity, T.TEXT_MAIN), title, lines
@@ -1777,7 +1778,7 @@ class App(tk.Tk):
     def _refresh_inventory(self):
         p = self.state.player
         self._inventory_items = sort_items(p.inventory)
-        labels = [f"{item.display_name()}{self._equip_tag(item)}"
+        labels = [f"{self._display_name(item)}{self._equip_tag(item)}"
                   for item in self._inventory_items]
         categories = [item.category for item in self._inventory_items]
         self.inv_panel.set_items(self._inventory_items, labels, categories=categories)
@@ -1795,6 +1796,9 @@ class App(tk.Tk):
         if item is p.equipped_weapon or item is p.equipped_armor or item is p.equipped_accessory:
             return " [equipped]"
         return ""
+
+    def _display_name(self, item) -> str:
+        return resolved_name(item, self.state.item_identity, self.state.player.identified)
 
     def _inventory_activate(self):
         """Enter key / button: use consumables, equip gear."""
@@ -1857,7 +1861,7 @@ class App(tk.Tk):
             lines.append(f"Sells for {sell_price(item)} gold.")
             if self._equip_tag(item):
                 lines.append("Selling will unequip it.")
-        return RARITY_COLORS.get(item.rarity, T.TEXT_MAIN), item.display_name(), lines
+        return RARITY_COLORS.get(item.rarity, T.TEXT_MAIN), self._display_name(item), lines
 
     def _open_shop(self):
         self.mode = "shop"
@@ -1878,12 +1882,12 @@ class App(tk.Tk):
         self.shop_gold_label.configure(text=f"Gold: {p.gold}")
         if self._shop_tab == "buy":
             items = sort_items(self.state.floor.shop_stock)
-            labels = [f"{i.display_name()} - {i.value}g" for i in items]
+            labels = [f"{self._display_name(i)} - {i.value}g" for i in items]
             colors = [(T.TEXT_BAD if p.gold < i.value
                         else RARITY_COLORS.get(i.rarity, T.TEXT_MAIN)) for i in items]
         else:
             items = sort_items(p.inventory)
-            labels = [f"{i.display_name()}{self._equip_tag(i)} - {sell_price(i)}g" for i in items]
+            labels = [f"{self._display_name(i)}{self._equip_tag(i)} - {sell_price(i)}g" for i in items]
             colors = None
         categories = [i.category for i in items]
         self.shop_panel.set_items(items, labels, colors, categories=categories,

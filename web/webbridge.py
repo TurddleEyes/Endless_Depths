@@ -12,6 +12,7 @@ import json
 from engine import bosses as boss_module
 from engine import constants as C
 from engine.entities import base_template_name
+from engine.items import resolved_name
 from engine.world import GameState
 from engine import puzzles as puzzle_module
 from engine import replay as replay_module
@@ -287,7 +288,7 @@ def _decor_key(depth: int, x: int, y: int):
 def _item_entry(item, p, price=None):
     entry = {
         "id": item.id,
-        "label": item.display_name(),
+        "label": resolved_name(item, STATE.item_identity, p.identified),
         "category": item.category,
         "rarity": item.rarity,
         "color": RARITY_COLORS.get(item.rarity, "#e6e6e6"),

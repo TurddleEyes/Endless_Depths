@@ -1,6 +1,7 @@
 """Item definitions and procedural item generation."""
 from __future__ import annotations
 
+import random
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Optional
@@ -41,6 +42,13 @@ class Item:
     resist_status: str = ""          # armor/accessory: "" | poison | burn | bleed
     resist_pct: float = 0.0          # armor/accessory: % chance to resist that status entirely
     set_name: str = ""               # "" = not part of a set; else a GEAR_SETS key
+    # -- Beatitude (weapon/armor/accessory only) --------------------------
+    # Hidden until the item is actually EQUIPPED (buc_known flips true then -
+    # see world.py's equip_item). Blessed/cursed nudge the item's own base
+    # bonus by +-1 on top of everything above. A cursed, EQUIPPED item can't
+    # be unequipped/dropped until a Scroll of Remove Curse lifts it.
+    buc: str = "uncursed"             # "blessed" | "uncursed" | "cursed"
+    buc_known: bool = False
 
     @property
     def color(self) -> str:
@@ -70,6 +78,7 @@ _SCROLL_TYPES = [
     ("Scroll of Enchantment", "enchant", 1),
     ("Scroll of Teleportation", "teleport", 0),
     ("Scroll of Fireball", "fireball", 8),
+    ("Scroll of Remove Curse", "remove_curse", 0),
 ]
 
 _CATEGORY_WEIGHTS = [
@@ -169,6 +178,65 @@ def _maybe_tag_set(item, category: str, rarity_name: str, rng) -> bool:
     return True
 
 
+# -- Beatitude ---------------------------------------------------------
+_BUC_WEIGHTS = [("cursed", 12), ("uncursed", 76), ("blessed", 12)]
+
+
+def _roll_buc(rng) -> str:
+    return rng.choices([b for b, _w in _BUC_WEIGHTS], weights=[w for _b, w in _BUC_WEIGHTS], k=1)[0]
+
+
+def _apply_buc(item, buc: str, stat_names: tuple) -> None:
+    """Nudges the named bonus_* fields by +-1 for blessed/cursed - applied
+    on top of the item's base roll, before affixes/sets are considered."""
+    if buc == "blessed":
+        for stat in stat_names:
+            setattr(item, stat, getattr(item, stat) + 1)
+    elif buc == "cursed":
+        for stat in stat_names:
+            setattr(item, stat, max(0, getattr(item, stat) - 1))
+
+
+# -- Item identification -------------------------------------------------
+# Potions/scrolls show a cosmetic per-run alias until identified (by using
+# one, or any of the same effect elsewhere - see world.py's use_item/
+# resolved_name). Equipment is never hidden by name; only its beatitude is
+# (see buc_known above) - two independent "don't fully trust what you
+# picked up" mechanics.
+_POTION_APPEARANCES = ["Fizzy", "Murky", "Sparkling", "Bitter", "Milky", "Smoky"]
+_SCROLL_RUNEWORDS = ["Xoreth", "Vaelun", "Krazak", "Mirthos", "Zhul", "Quennar"]
+
+
+def build_item_identity(seed: int) -> dict:
+    """Per-run {"potion:heal": "Murky Potion", ...} shuffle. Uses its OWN
+    rng derived from the run seed - NEVER GameState.rng - so identification
+    is purely cosmetic and never shifts the gameplay rng stream."""
+    r = random.Random(seed * 2654435761 + 0x9E3779B9)
+    potion_effects = [effect for _name, effect, _mag in _POTION_TYPES]
+    scroll_effects = [effect for _name, effect, _mag in _SCROLL_TYPES]
+    potion_names = r.sample(_POTION_APPEARANCES, len(potion_effects))
+    scroll_names = r.sample(_SCROLL_RUNEWORDS, len(scroll_effects))
+    identity = {f"potion:{e}": f"{n} Potion" for e, n in zip(potion_effects, potion_names)}
+    identity.update({f"scroll:{e}": f"Scroll of {n}" for e, n in zip(scroll_effects, scroll_names)})
+    return identity
+
+
+def identity_key(item) -> str:
+    return f"{item.category}:{item.effect}"
+
+
+def resolved_name(item, item_identity: dict, identified: set) -> str:
+    """The name to show for `item` - its true display name, unless it's an
+    unidentified potion/scroll, in which case the per-run cosmetic alias.
+    Equipment/gold/keys are never hidden by name."""
+    if item.category not in ("potion", "scroll"):
+        return item.display_name()
+    key = identity_key(item)
+    if key in identified:
+        return item.display_name()
+    return item_identity.get(key, item.display_name())
+
+
 def _pick_rarity(rng, depth: int) -> tuple:
     # Higher depth nudges the odds toward better rarities without a hard cap.
     weights = []
@@ -197,7 +265,8 @@ def generate_item(depth: int, rng, quality_bonus: float = 1.0) -> Item:
         bonus_attack = max(1, round((2 + depth * 0.8) * mult))
         value = round(10 * scale * mult)
         item = Item(_new_id(), f"{rarity_name.title()} {name}", category, "/", rarity_name,
-                     value, bonus_attack=bonus_attack)
+                     value, bonus_attack=bonus_attack, buc=_roll_buc(rng))
+        _apply_buc(item, item.buc, ("bonus_attack",))
         if not _maybe_tag_set(item, "weapon", rarity_name, rng):
             if rng.random() < _AFFIX_CHANCE.get(rarity_name, 0.0):
                 _roll_offense_affix(item, rng)
@@ -208,7 +277,8 @@ def generate_item(depth: int, rng, quality_bonus: float = 1.0) -> Item:
         bonus_defense = max(1, round((1 + depth * 0.6) * mult))
         value = round(9 * scale * mult)
         item = Item(_new_id(), f"{rarity_name.title()} {name}", category, "[", rarity_name,
-                     value, bonus_defense=bonus_defense)
+                     value, bonus_defense=bonus_defense, buc=_roll_buc(rng))
+        _apply_buc(item, item.buc, ("bonus_defense",))
         if not _maybe_tag_set(item, "armor", rarity_name, rng):
             if rng.random() < _AFFIX_CHANCE.get(rarity_name, 0.0):
                 _roll_defense_affix(item, rng)
@@ -224,7 +294,8 @@ def generate_item(depth: int, rng, quality_bonus: float = 1.0) -> Item:
             bonus_attack = 1
         value = round(12 * scale * mult)
         item = Item(_new_id(), f"{rarity_name.title()} {name}", category, "=", rarity_name,
-                     value, bonus_attack=bonus_attack, bonus_defense=bonus_defense)
+                     value, bonus_attack=bonus_attack, bonus_defense=bonus_defense, buc=_roll_buc(rng))
+        _apply_buc(item, item.buc, ("bonus_attack", "bonus_defense"))
         if not _maybe_tag_set(item, "accessory", rarity_name, rng):
             if rng.random() < _AFFIX_CHANCE.get(rarity_name, 0.0):
                 if rng.random() < 0.5:
@@ -297,4 +368,13 @@ def use_item(player, item: Item) -> str:
             return "__TELEPORT__"
         if item.effect == "fireball":
             return "__FIREBALL__"
+        if item.effect == "remove_curse":
+            cursed = [eq for eq in (player.equipped_weapon, player.equipped_armor, player.equipped_accessory)
+                      if eq and eq.buc == "cursed"]
+            for eq in cursed:
+                eq.buc = "uncursed"
+            if cursed:
+                names = ", ".join(eq.name for eq in cursed)
+                return f"A soft light washes over you - the curse lifts from your {names}!"
+            return "You feel a faint warmth, but nothing on you seems cursed right now."
     return f"Nothing happens."

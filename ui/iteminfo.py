@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from engine import constants as C
-from engine.items import GEAR_SETS
+from engine.items import GEAR_SETS, identity_key
 from engine.shop import SELL_RATIO
 
 RARITY_COLORS = {name: color for name, _mult, _weight, color in C.RARITIES}
@@ -98,6 +98,18 @@ def _set_lines(item, player) -> list:
     return lines
 
 
+def _buc_lines(item) -> list:
+    """Beatitude (M4) - stays hidden until the item is actually equipped
+    (item.buc_known), same spirit as an unidentified potion/scroll."""
+    if not item.buc_known:
+        return []
+    return [f"This item is {item.buc}."]
+
+
+def _is_identified(item, player) -> bool:
+    return identity_key(item) in player.identified
+
+
 def describe_item(item, player) -> list:
     """Stat lines for the details panel (title/name is rendered separately)."""
     lines = [f"{item.rarity.title()} {item.category}"]
@@ -106,6 +118,7 @@ def describe_item(item, player) -> list:
         lines.append(f"Attack: +{item.bonus_attack}")
         lines.extend(_affix_lines(item))
         lines.extend(_set_lines(item, player))
+        lines.extend(_buc_lines(item))
         eq = player.equipped_weapon
         if eq is item:
             lines.append("Currently equipped.")
@@ -119,6 +132,7 @@ def describe_item(item, player) -> list:
         lines.append(f"Defense: +{item.bonus_defense}")
         lines.extend(_affix_lines(item))
         lines.extend(_set_lines(item, player))
+        lines.extend(_buc_lines(item))
         eq = player.equipped_armor
         if eq is item:
             lines.append("Currently equipped.")
@@ -137,6 +151,7 @@ def describe_item(item, player) -> list:
         lines.append(", ".join(parts) if parts else "No stat bonuses")
         lines.extend(_affix_lines(item))
         lines.extend(_set_lines(item, player))
+        lines.extend(_buc_lines(item))
         eq = player.equipped_accessory
         if eq is item:
             lines.append("Currently equipped.")
@@ -149,7 +164,9 @@ def describe_item(item, player) -> list:
             lines.append(_diff_text(new_total - cur_total))
 
     elif item.category == "potion":
-        if item.effect == "heal":
+        if not _is_identified(item, player):
+            lines.append("Unidentified. Effects unknown until used.")
+        elif item.effect == "heal":
             lines.append(f"Restores up to {item.magnitude} HP.")
         elif item.effect == "strength":
             lines.append(f"Permanently raises attack by {item.magnitude}.")
@@ -158,7 +175,9 @@ def describe_item(item, player) -> list:
         lines.append("One use. Drinking takes a turn.")
 
     elif item.category == "scroll":
-        if item.effect == "enchant":
+        if not _is_identified(item, player):
+            lines.append("Unidentified. Effects unknown until read.")
+        elif item.effect == "enchant":
             lines.append("Makes your equipped weapon")
             lines.append("or armor permanently stronger.")
         elif item.effect == "teleport":
@@ -167,6 +186,9 @@ def describe_item(item, player) -> list:
         elif item.effect == "fireball":
             lines.append(f"Burns every enemy you can see")
             lines.append(f"for {item.magnitude} damage.")
+        elif item.effect == "remove_curse":
+            lines.append("Lifts a curse from your")
+            lines.append("currently equipped gear.")
         lines.append("One use. Reading takes a turn.")
 
     elif item.category == "gold":

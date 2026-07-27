@@ -573,6 +573,80 @@ def test_gear_resistance_blocks_ailment():
     print("OK: armor/accessory resist_status blocks a matching ailment")
 
 
+def test_item_identification():
+    from engine.items import (build_item_identity, resolved_name, identity_key,
+                               make_cure_potion, _POTION_TYPES, _SCROLL_TYPES)
+
+    identity = build_item_identity(123)
+    for _name, effect, _mag in _POTION_TYPES:
+        assert f"potion:{effect}" in identity
+    for _name, effect, _mag in _SCROLL_TYPES:
+        assert f"scroll:{effect}" in identity
+    assert len(set(identity.values())) == len(identity), "aliases must all be distinct"
+
+    # Through a real GameState: pickup/use shows the alias until the WHOLE
+    # effect (not just this one item instance) gets identified by using one.
+    state = GameState(seed=124)
+    state.new_game()
+    cure = make_cure_potion(state.depth)
+    key = identity_key(cure)
+    assert resolved_name(cure, state.item_identity, state.player.identified) == state.item_identity[key]
+    state.player.inventory.append(cure)
+    state.use_item(cure)
+    assert key in state.player.identified
+    cure2 = make_cure_potion(state.depth)
+    assert resolved_name(cure2, state.item_identity, state.player.identified) == cure2.display_name(), \
+        "identifying one potion of a type should reveal every potion of that type"
+    print("OK: unidentified potions/scrolls show a cosmetic alias until used, then reveal the whole effect type")
+
+
+def test_cursed_gear_locks_slot():
+    from engine.items import Item
+
+    state = GameState(seed=125)
+    state.new_game()
+    cursed_sword = Item(1, "Test Blade", "weapon", "/", "common", 1, bonus_attack=5, buc="cursed")
+    other_sword = Item(2, "Other Blade", "weapon", "/", "common", 1, bonus_attack=10)
+    state.player.inventory.extend([cursed_sword, other_sword])
+
+    state.equip_item(cursed_sword)
+    assert state.player.equipped_weapon is cursed_sword
+    assert cursed_sword.buc_known, "equipping must reveal beatitude"
+
+    # Can't swap to a different weapon, or drop this one, while cursed.
+    state.equip_item(other_sword)
+    assert state.player.equipped_weapon is cursed_sword, "cursed gear should refuse to be swapped out"
+    state.drop_item(cursed_sword)
+    assert cursed_sword in state.player.inventory, "cursed gear should refuse to be dropped"
+
+    # A Scroll of Remove Curse lifts it, then both work normally.
+    remove_curse = Item(3, "Test Scroll", "scroll", "?", "common", 1, effect="remove_curse")
+    state.player.inventory.append(remove_curse)
+    state.use_item(remove_curse)
+    assert cursed_sword.buc == "uncursed"
+    state.equip_item(other_sword)
+    assert state.player.equipped_weapon is other_sword, "curse lifted - swapping should now work"
+    print("OK: cursed equipped gear can't be swapped/dropped until a Scroll of Remove Curse lifts it")
+
+
+def test_buc_rolls_and_stat_nudge():
+    import random
+    from engine.items import _roll_buc, _apply_buc, Item
+
+    rng = random.Random(17)
+    seen = {"cursed": False, "uncursed": False, "blessed": False}
+    for _ in range(500):
+        seen[_roll_buc(rng)] = True
+    assert all(seen.values()), "all three beatitude states should show up over enough rolls"
+
+    blessed = Item(2, "Test", "weapon", "/", "common", 1, bonus_attack=10)
+    cursed = Item(3, "Test", "weapon", "/", "common", 1, bonus_attack=10)
+    _apply_buc(blessed, "blessed", ("bonus_attack",))
+    _apply_buc(cursed, "cursed", ("bonus_attack",))
+    assert blessed.bonus_attack == 11 and cursed.bonus_attack == 9
+    print("OK: beatitude rolls cover all three states and nudge the item's base stat by +-1")
+
+
 def test_monster_scaling():
     import random
     rng = random.Random(11)
@@ -1227,6 +1301,7 @@ def _state_fingerprint(state):
                        state.player.equipped_accessory)
         ),
         "status_effects": json.dumps(state.player.status_effects, sort_keys=True),
+        "identified": sorted(state.player.identified),
         "tiles": ["".join(r) for r in state.floor.tiles],
         # boss_state (phase, cooldowns, pending ability, buffs - also used
         # by elites/kited regular monsters, see engine/bosses.py) is plain
@@ -1576,6 +1651,9 @@ if __name__ == "__main__":
     test_gear_affixes_and_sets()
     test_weapon_affix_effects_in_combat()
     test_gear_resistance_blocks_ailment()
+    test_item_identification()
+    test_cursed_gear_locks_slot()
+    test_buc_rolls_and_stat_nudge()
     test_monster_scaling()
     test_shop_transactions()
     test_shop_prices_scale_with_depth()

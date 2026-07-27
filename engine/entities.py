@@ -28,6 +28,10 @@ class Player:
     status_effects: list = field(default_factory=list)
     kills: int = 0
     turns: int = 0
+    # Which potion/scroll effects ("category:effect" keys - see
+    # engine/items.py resolved_name/identity_key) the player has identified
+    # this run, by using one or reading a matching effect elsewhere.
+    identified: set = field(default_factory=set)
 
     @property
     def attack_power(self) -> int:
@@ -84,6 +88,7 @@ class Player:
         d["equipped_weapon"] = self.equipped_weapon.to_dict() if self.equipped_weapon else None
         d["equipped_armor"] = self.equipped_armor.to_dict() if self.equipped_armor else None
         d["equipped_accessory"] = self.equipped_accessory.to_dict() if self.equipped_accessory else None
+        d["identified"] = sorted(self.identified)  # a bare set isn't JSON-able
         return d
 
     @staticmethod
@@ -93,6 +98,7 @@ class Player:
         data["equipped_weapon"] = Item.from_dict(data["equipped_weapon"]) if data.get("equipped_weapon") else None
         data["equipped_armor"] = Item.from_dict(data["equipped_armor"]) if data.get("equipped_armor") else None
         data["equipped_accessory"] = Item.from_dict(data["equipped_accessory"]) if data.get("equipped_accessory") else None
+        data["identified"] = set(data.get("identified", []))
         return Player(**data)
 
 
