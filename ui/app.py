@@ -176,7 +176,7 @@ class App(tk.Tk):
         self._title_bg_img = sprite_defs.load_static_png(
             "title_bg.png", self.TITLE_W, self.TITLE_BG_H)
         self._title_logo_img = sprite_defs.load_static_png("title_logo.png")  # native 555x60
-        self._title_icon_imgs = sprite_defs.load_icon_strip("title_icons.png", 6)
+        self._title_icon_imgs = sprite_defs.load_icon_strip("title_icons.png", 9)
 
         canvas.create_image(0, 0, anchor="nw", image=self._title_bg_img)
         canvas.create_image(self.TITLE_W // 2, 26, anchor="n", image=self._title_logo_img)
@@ -232,7 +232,8 @@ class App(tk.Tk):
         canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=seed_row)
         y += 28
 
-        icon = dict(zip(("sword", "hourglass", "ghost", "play", "book", "gear"),
+        icon = dict(zip(("sword", "hourglass", "ghost", "play", "scroll",
+                         "question", "monster", "trophy", "gear"),
                         self._title_icon_imgs))
         primary_style = dict(btn_style, bg="#1a3c5c", highlightbackground=T.TEXT_WARN,
                               highlightthickness=2)
@@ -270,14 +271,14 @@ class App(tk.Tk):
         # width rows, again mirroring the web build's compact icon toolbar.
         icon_row_style = dict(btn_style, width=110, font=T.UI_FONT)
         icon_row = tk.Frame(self.title_frame, bg=T.BG)
-        tk.Button(icon_row, text="Lore", image=icon["book"],
+        tk.Button(icon_row, text="Lore", image=icon["scroll"],
                    command=lambda: self._show_lore(first_time=False),
                    **icon_row_style).pack(side="left", padx=3)
-        tk.Button(icon_row, text="Help", image=icon["book"],
+        tk.Button(icon_row, text="Help", image=icon["question"],
                    command=self._open_guide, **icon_row_style).pack(side="left", padx=3)
-        tk.Button(icon_row, text="Bestiary", image=icon["book"],
+        tk.Button(icon_row, text="Bestiary", image=icon["monster"],
                    command=self._show_bestiary, **icon_row_style).pack(side="left", padx=3)
-        tk.Button(icon_row, text="Achieve.", image=icon["book"],
+        tk.Button(icon_row, text="Achieve.", image=icon["trophy"],
                    command=self._show_achievements, **icon_row_style).pack(side="left", padx=3)
         tk.Button(icon_row, text="Settings", image=icon["gear"],
                    command=self._open_settings, **icon_row_style).pack(side="left", padx=3)

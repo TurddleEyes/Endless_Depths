@@ -188,7 +188,7 @@ body.portrait #title-hero { display: none; } /* the archway crops tight in portr
   width: 32px;
   height: 32px;
   /* Native 32px icon cells - no scaling, so pixel art stays crisp. */
-  background: url("title_icons.png") 0 0 / 192px 32px no-repeat;
+  background: url("title_icons.png") 0 0 / 288px 32px no-repeat;
   image-rendering: pixelated;
   opacity: 0.82;
 }
@@ -204,12 +204,21 @@ body.portrait #title-hero { display: none; } /* the archway crops tight in portr
 .menu-btn[data-icon="play"]::before,
 .menu-btn-sm[data-icon="play"]::before,
 .icon-btn[data-icon="play"]::before          { background-position: -96px 0; }
-.menu-btn[data-icon="book"]::before,
-.menu-btn-sm[data-icon="book"]::before,
-.icon-btn[data-icon="book"]::before          { background-position: -128px 0; }
+.menu-btn[data-icon="scroll"]::before,
+.menu-btn-sm[data-icon="scroll"]::before,
+.icon-btn[data-icon="scroll"]::before        { background-position: -128px 0; }
+.menu-btn[data-icon="question"]::before,
+.menu-btn-sm[data-icon="question"]::before,
+.icon-btn[data-icon="question"]::before      { background-position: -160px 0; }
+.menu-btn[data-icon="monster"]::before,
+.menu-btn-sm[data-icon="monster"]::before,
+.icon-btn[data-icon="monster"]::before       { background-position: -192px 0; }
+.menu-btn[data-icon="trophy"]::before,
+.menu-btn-sm[data-icon="trophy"]::before,
+.icon-btn[data-icon="trophy"]::before        { background-position: -224px 0; }
 .menu-btn[data-icon="gear"]::before,
 .menu-btn-sm[data-icon="gear"]::before,
-.icon-btn[data-icon="gear"]::before          { background-position: -160px 0; }
+.icon-btn[data-icon="gear"]::before          { background-position: -256px 0; }
 .menu-btn span.label { flex: 1; }
 .menu-btn:hover:not(:disabled),
 .menu-btn:focus-visible,

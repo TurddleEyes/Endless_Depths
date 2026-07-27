@@ -384,7 +384,7 @@ def build_logo(text="ENDLESS DEPTHS"):
 # Menu icons: one 16x16 glyph per button, doubled and laid out in a
 # single horizontal strip so the page only needs one extra image request.
 # ----------------------------------------------------------------------
-ICON_ORDER = ("sword", "hourglass", "ghost", "play", "book", "gear")
+ICON_ORDER = ("sword", "hourglass", "ghost", "play", "scroll", "question", "monster", "trophy", "gear")
 
 ICON_GRIDS = {
     "sword": (
@@ -459,25 +459,84 @@ ICON_GRIDS = {
          "................",
          "................"],
         {"g": "#66d9ef", "w": "#c9f3fb"}),
-    "book": (
+    # A rolled parchment: two shaded "roll" ends (r) and a lighter open
+    # ribbon (p) in the middle with two darker seams (d) marking where it
+    # curls, plus a couple of text-line ticks (l) - Lore.
+    "scroll": (
         ["................",
          "................",
-         "..rrrrr.hhhhhh..",
-         "..rccccdkkkkkh..",
-         "..rccccdkyyykh..",
-         "..rccccdkyyykh..",
-         "..rccccdkyyykh..",
-         "..rccccdkyyykh..",
-         "..rccccdkyyykh..",
-         "..rccccdkkkkkh..",
-         "..rrrrr.hhhhhh..",
+         "..rrpppppppprr..",
+         ".rrrpppppppprrr.",
+         "rrrpppppppppprrr",
+         "rrrdppppppppdrrr",
+         "rrrdpllllllpdrrr",
+         "rrrdppppppppdrrr",
+         "rrrdpllllllpdrrr",
+         "rrrdppppppppdrrr",
+         "rrrpppppppppprrr",
+         ".rrrpppppppprrr.",
+         "..rrpppppppprr..",
+         "................",
+         "................",
+         "................"],
+        {"r": "#c9ad6e", "p": "#e8d9a8", "d": "#9c8250", "l": "#b89860"}),
+    # A chunky "?" - How to Play.
+    "question": (
+        ["................",
+         "....qqqqqq......",
+         "..qqqqqqqqqq....",
+         ".qqq......qqq...",
+         ".qq........qq...",
+         "...........qq...",
+         "..........qq....",
+         ".........qq.....",
+         "........qq......",
+         ".......qq.......",
+         ".......qq.......",
+         "................",
+         ".......qq.......",
+         ".......qq.......",
+         "................",
+         "................"],
+        {"q": "#f2c94c"}),
+    # A little round fanged creature face - Bestiary.
+    "monster": (
+        ["................",
+         "....hh....hh....",
+         "...gggggggggg...",
+         "..gggggggggggg..",
+         ".ggggwwggwwgggg.",
+         ".ggggwwggwwgggg.",
+         ".ggggeeggeegggg.",
+         ".gggggggggggggg.",
+         ".ggggtggggtgggg.",
+         "..gggggggggggg..",
+         "...gggggggggg...",
          "................",
          "................",
          "................",
          "................",
          "................"],
-        {"r": "#8a2a2a", "c": "#c8433f", "d": "#3a1414", "h": "#caa53c",
-         "k": "#7a5a1e", "y": "#f2d98a"}),
+        {"h": "#4a8a3a", "g": "#5cae46", "w": "#f4f4fa", "e": "#2a2a33", "t": "#f4f4fa"}),
+    # A trophy cup - Achievements.
+    "trophy": (
+        ["................",
+         "...gggggggggg...",
+         "..gggggggggggg..",
+         "hhgyyyyyyyyyyghh",
+         ".hgyyyyyyyyyygh.",
+         "..gyyyyyyyyyyg..",
+         "...gyyyyyyyyg...",
+         "....gyyyyyyg....",
+         "......gggg......",
+         "......gggg......",
+         ".....gggggg.....",
+         "....gggggggg....",
+         "................",
+         "................",
+         "................",
+         "................"],
+        {"g": "#e0b83a", "y": "#f7dd7a", "h": "#a87c1e"}),
     "gear": (
         ["................",
          ".......gg.......",
