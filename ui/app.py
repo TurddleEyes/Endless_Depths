@@ -250,6 +250,10 @@ class App(tk.Tk):
                                **btn_style)
         canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=lore_btn)
         y += 48
+        help_btn = tk.Button(self.title_frame, text="How to Play (H)", image=icon["book"],
+                               command=self._open_guide, **btn_style)
+        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=help_btn)
+        y += 48
 
         bottom_row = tk.Frame(self.title_frame, bg=T.BG)
         half_style = dict(btn_style, width=150)  # still pixels: has an icon
@@ -543,6 +547,17 @@ class App(tk.Tk):
         self.lore_next_button = tk.Button(nav_row, text="Next >",
                                             command=lambda: self._lore_step(1), **btn_style)
         self.lore_next_button.pack(side="left", padx=6)
+
+    def _open_guide(self):
+        """Open the delver's field manual (GUIDE.html at the repo root) in the
+        system browser - it was written long ago but never linked in-app."""
+        import webbrowser
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        guide = os.path.join(base_dir, "GUIDE.html")
+        try:
+            webbrowser.open(f"file://{guide}")
+        except Exception:
+            self.title_status_label.configure(text=f"Guide is at {guide}")
 
     def _show_lore(self, first_time: bool):
         self._hide_all()
@@ -1224,6 +1239,8 @@ class App(tk.Tk):
                 self._open_replay_picker()
             elif event.keysym in ("l", "L"):
                 self._show_lore(first_time=False)
+            elif event.keysym in ("h", "H"):
+                self._open_guide()
         elif self.mode == "replay_picker":
             if event.keysym == "Escape":
                 self._close_replay_picker()

@@ -38,11 +38,12 @@ done
 # ui/widgets.py (desktop-tkinter only), assets/ (desktop wav cache,
 # regenerated at runtime, gitignored), save.json/settings.json/
 # highscores.json (local dev state), scripts/, .git, __pycache__/,
-# .nojekyll, README.md, GUIDE.html (standalone manual, not linked from
-# index.html/main.js -- not part of the runnable game; add it below
-# explicitly if that ever changes).
+# .nojekyll, README.md. (GUIDE.html USED to be excluded as an unlinked
+# standalone manual, but the title menu's "How to Play" button now opens it,
+# so it ships with the runnable game - listed in FILES below.)
 FILES=(
     index.html
+    GUIDE.html
     web/main.js
     web/style.css
     web/webbridge.py

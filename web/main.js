@@ -655,6 +655,12 @@ function toTitle() {
   audio.playMusic("depths");
 }
 
+// The delver's field manual (GUIDE.html) ships next to index.html but was
+// never linked in-app; open it in a new tab from the title menu.
+function openGuide() {
+  window.open("GUIDE.html", "_blank", "noopener");
+}
+
 /* ------------------------------------------------------------------ lore */
 const lore = { data: null, page: 0 };
 
@@ -1675,6 +1681,7 @@ document.addEventListener("keydown", (e) => {
       else if ((e.key === "c" || e.key === "C") && !$("btn-continue").disabled) continueGame();
       else if (e.key === "v" || e.key === "V") openReplayPicker();
       else if (e.key === "l" || e.key === "L") showLore(false);
+      else if (e.key === "h" || e.key === "H") openGuide();
       break;
     case "replay-picker":
       if (e.key === "Escape") toTitle();
@@ -2112,6 +2119,7 @@ $("btn-new").addEventListener("click", startNewGame);
 $("btn-continue").addEventListener("click", continueGame);
 $("btn-title").addEventListener("click", toTitle);
 $("btn-lore").addEventListener("click", () => showLore(false));
+$("btn-help").addEventListener("click", openGuide);
 $("lore-next").addEventListener("click", () => loreStep(1));
 $("lore-back").addEventListener("click", () => loreStep(-1));
 $("btn-speedrun").addEventListener("click", startSpeedrun);
