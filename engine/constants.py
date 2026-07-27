@@ -123,3 +123,7 @@ MAX_SPEEDRUN_SCORES = 10
 DAILY_FILE = "daily.json"          # one-attempt-per-day lock + today's result
 RUN_HISTORY_FILE = "run_history.json"  # rolling last-N runs of any mode
 MAX_RUN_HISTORY = 20
+
+# --- Bestiary + achievements (M6) ------------------------------------------
+BESTIARY_FILE = "bestiary.json"           # cross-run {name: {seen, kills}}
+ACHIEVEMENTS_FILE = "achievements.json"   # cross-run {id: date_unlocked}

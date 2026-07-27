@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Endless Depths</title>
-<link rel="stylesheet" href="web/style.css?v=23">
+<link rel="stylesheet" href="web/style.css?v=24">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128481;</text></svg>">
 </head>
 <body>
@@ -37,6 +37,8 @@
         <button id="btn-watch" class="menu-btn" data-icon="play"><span class="label">Watch Replay</span><kbd>V</kbd></button>
         <button id="btn-lore" class="menu-btn" data-icon="book"><span class="label">Lore</span><kbd>L</kbd></button>
         <button id="btn-help" class="menu-btn" data-icon="book"><span class="label">How to Play</span><kbd>H</kbd></button>
+        <button id="btn-bestiary" class="menu-btn" data-icon="book"><span class="label">Bestiary</span><kbd>B</kbd></button>
+        <button id="btn-achievements" class="menu-btn" data-icon="book"><span class="label">Achievements</span><kbd>A</kbd></button>
         <button id="btn-settings" class="menu-btn" data-icon="gear"><span class="label">Settings</span><kbd>O</kbd></button>
       </div>
       <div id="score-toggle">
@@ -73,6 +75,22 @@
       <button id="lore-back">&lt; Back</button>
       <button id="lore-next">Next &gt;</button>
     </div>
+  </div>
+
+  <!-- Bestiary screen -->
+  <div id="bestiary-screen" class="screen hidden">
+    <h2>BESTIARY</h2>
+    <div id="bestiary-progress" class="subtitle"></div>
+    <div id="bestiary-grid"></div>
+    <button id="bestiary-back">Back (Esc)</button>
+  </div>
+
+  <!-- Achievements screen -->
+  <div id="achievements-screen" class="screen hidden">
+    <h2>ACHIEVEMENTS</h2>
+    <div id="achievements-progress" class="subtitle"></div>
+    <div id="achievements-list"></div>
+    <button id="achievements-back">Back (Esc)</button>
   </div>
 
   <!-- Play screen -->
@@ -235,6 +253,6 @@
 </div>
 </div>
 <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
-<script src="web/main.js?v=23"></script>
+<script src="web/main.js?v=24"></script>
 </body>
 </html>

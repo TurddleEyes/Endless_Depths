@@ -31,7 +31,7 @@ function pickOrientation() {
 const PY_FILES = [
   "engine/__init__.py", "engine/bosses.py", "engine/constants.py", "engine/combat.py",
   "engine/dungeon.py", "engine/entities.py", "engine/fov.py",
-  "engine/biomes.py", "engine/items.py", "engine/puzzles.py", "engine/replay.py",
+  "engine/achievements.py", "engine/biomes.py", "engine/items.py", "engine/puzzles.py", "engine/replay.py",
   "engine/save.py", "engine/shop.py", "engine/status.py", "engine/traits.py", "engine/world.py",
   "ui/__init__.py", "ui/spritedata.py", "ui/iteminfo.py", "ui/audio.py", "ui/lore.py",
 ];
@@ -640,7 +640,8 @@ const audio = {
 /* ------------------------------------------------------------ screens */
 function showScreen(name) {
   for (const id of ["title-screen", "lore-screen", "play-screen",
-                     "gameover-screen", "victory-screen", "replay-picker"]) {
+                     "gameover-screen", "victory-screen", "replay-picker",
+                     "bestiary-screen", "achievements-screen"]) {
     $(id).classList.toggle("hidden", id !== name);
   }
   $("inventory-overlay").classList.add("hidden");
@@ -691,6 +692,132 @@ function loreStep(delta) {
   }
   lore.page = Math.max(0, Math.min(lore.page + delta, pages.length - 1));
   renderLorePage();
+}
+
+/* ------------------------------------------------------------- bestiary */
+// Web owns its OWN persistence in localStorage (like scores/history/daily
+// above) rather than the desktop's bestiary.json - the bridge only ever
+// supplies pure data (templates, this run's sightings), never touches disk.
+const LS_BESTIARY = "endless_depths_bestiary";
+let bestiaryTemplates = null;  // static breed list, fetched from the bridge once
+
+function loadBestiaryData() {
+  try { return JSON.parse(localStorage.getItem(LS_BESTIARY)) || {}; }
+  catch { return {}; }
+}
+
+function mergeBestiaryFromRun() {
+  // Folds this run's newly-seen breeds/kills into the PERSISTENT bestiary -
+  // called once at run-end (gameOver/victory), same cadence as recordHistory.
+  const runData = JSON.parse(bridge.bestiary_run_data_json());
+  const data = loadBestiaryData();
+  for (const name of runData.seen) {
+    const entry = data[name] || { seen: false, kills: 0 };
+    entry.seen = true;
+    data[name] = entry;
+  }
+  for (const [name, count] of Object.entries(runData.kills)) {
+    const entry = data[name] || { seen: false, kills: 0 };
+    entry.kills = (entry.kills || 0) + count;
+    data[name] = entry;
+  }
+  localStorage.setItem(LS_BESTIARY, JSON.stringify(data));
+}
+
+function openBestiary() {
+  mode = "bestiary";
+  if (!bestiaryTemplates) bestiaryTemplates = JSON.parse(bridge.bestiary_templates_json());
+  renderBestiary();
+  showScreen("bestiary-screen");
+}
+
+function renderBestiary() {
+  const data = loadBestiaryData();
+  const grid = $("bestiary-grid");
+  grid.innerHTML = "";
+  let seenCount = 0;
+  for (const t of bestiaryTemplates) {
+    const entry = data[t.name];
+    const cell = document.createElement("div");
+    cell.className = "bestiary-cell" + (entry && entry.seen ? "" : " unseen");
+    if (entry && entry.seen) {
+      seenCount++;
+      const c = document.createElement("canvas");
+      c.width = 48;
+      c.height = 48;
+      const g = c.getContext("2d");
+      g.imageSmoothingEnabled = false;
+      if (atlas[t.sprite]) drawSpriteCentered(g, atlas[t.sprite], 48, 48, 4);
+      cell.appendChild(c);
+      const name = document.createElement("div");
+      name.className = "bname";
+      name.textContent = t.name;
+      cell.appendChild(name);
+      const kills = document.createElement("div");
+      kills.className = "bkills";
+      kills.textContent = `Kills: ${entry.kills || 0}`;
+      cell.appendChild(kills);
+    } else {
+      const ph = document.createElement("div");
+      ph.className = "bplaceholder";
+      ph.textContent = "?";
+      cell.appendChild(ph);
+      const name = document.createElement("div");
+      name.className = "bname";
+      name.textContent = "???";
+      cell.appendChild(name);
+    }
+    grid.appendChild(cell);
+  }
+  $("bestiary-progress").textContent = `Discovered: ${seenCount} / ${bestiaryTemplates.length}`;
+}
+
+/* --------------------------------------------------------- achievements */
+const LS_ACHIEVEMENTS = "endless_depths_achievements";
+let achievementDefs = null;  // static defs, fetched from the bridge once
+
+function loadUnlockedAchievements() {
+  try { return JSON.parse(localStorage.getItem(LS_ACHIEVEMENTS)) || {}; }
+  catch { return {}; }
+}
+
+function checkAchievementsFromRun(ctx) {
+  // Returns newly-unlocked {id, name, description} entries and persists
+  // them (with today's date) into localStorage - the actual milestone
+  // CHECK logic is shared with desktop via the bridge (engine/achievements.py),
+  // only the persistence layer differs.
+  const unlocked = loadUnlockedAchievements();
+  const newly = JSON.parse(bridge.check_achievement_unlocks_json(
+    JSON.stringify(ctx), JSON.stringify(Object.keys(unlocked))));
+  if (newly.length) {
+    const now = new Date().toISOString();
+    for (const a of newly) unlocked[a.id] = now;
+    localStorage.setItem(LS_ACHIEVEMENTS, JSON.stringify(unlocked));
+  }
+  return newly;
+}
+
+function openAchievements() {
+  mode = "achievements";
+  if (!achievementDefs) achievementDefs = JSON.parse(bridge.achievements_defs_json());
+  renderAchievements();
+  showScreen("achievements-screen");
+}
+
+function renderAchievements() {
+  const unlocked = loadUnlockedAchievements();
+  const list = $("achievements-list");
+  list.innerHTML = "";
+  let doneCount = 0;
+  for (const a of achievementDefs) {
+    const done = !!unlocked[a.id];
+    if (done) doneCount++;
+    const row = document.createElement("div");
+    row.className = "achievement-row " + (done ? "done" : "locked");
+    row.textContent = `${done ? "[x]" : "[ ]"} ${a.name} - ${a.description}`;
+    list.appendChild(row);
+  }
+  $("achievements-progress").textContent = `Unlocked: ${doneCount} / ${achievementDefs.length}`;
 }
 
 function finishLore() {
@@ -908,34 +1035,25 @@ function continueGame() {
   updateMusic();
 }
 
-function gameOver() {
-  mode = "gameover";
-  stopRunTimer();
+// Shared by gameOver() (a normal/daily-mode death) and victory() (a
+// normal/daily-mode floor-100 win): records to the highscore + rolling
+// history storage, and stamps today's daily done if this was a daily run.
+// Returns the score-panel text to show.
+function recordNormalModeRun(cause, finished) {
   const p = snap.player;
-  const cause = snap.cause_of_death || "Unknown causes.";
-  $("gameover-stats").textContent =
-    `Cause of death: ${cause}\n\nDepth reached: ${snap.depth}\nLevel: ${p.level}\n` +
-    `Gold collected: ${p.gold}\nMonsters slain: ${p.kills}\nTurns survived: ${p.turns}\n` +
-    `Time: ${fmtTime(finalElapsed())}\nSeed: ${snap.seed}`;
   const daily = isDailyRun();
-  if (snap.run_mode === "speedrun") {
-    const runs = recordSpeedrunRun();
-    $("gameover-highscores").textContent =
-      "Speedrun Leaderboard:\n" + speedrunScoreLines(runs, 5).join("\n");
-  } else {
-    const runs = loadScores();
-    runs.push({
-      date: new Date().toISOString(), depth_reached: snap.depth,
-      turns_survived: p.turns, level: p.level, gold: p.gold, kills: p.kills,
-      cause,
-    });
-    runs.sort((a, b) => (b.depth_reached - a.depth_reached) || (b.gold - a.gold));
-    localStorage.setItem(LS_SCORES, JSON.stringify(runs.slice(0, 10)));
-    const heading = daily ? "Daily Challenge — done!" : "High Scores:";
-    $("gameover-highscores").textContent = heading + "\n" +
-      runs.slice(0, 5).map((r) =>
-        `  Floor ${String(r.depth_reached).padStart(3)}  Lv ${String(r.level).padEnd(3)} Gold ${r.gold}`).join("\n");
-  }
+  const runs = loadScores();
+  runs.push({
+    date: new Date().toISOString(), depth_reached: snap.depth,
+    turns_survived: p.turns, level: p.level, gold: p.gold, kills: p.kills,
+    cause,
+  });
+  runs.sort((a, b) => (b.depth_reached - a.depth_reached) || (b.gold - a.gold));
+  localStorage.setItem(LS_SCORES, JSON.stringify(runs.slice(0, 10)));
+  const heading = daily ? "Daily Challenge — done!" : "High Scores:";
+  const text = heading + "\n" +
+    runs.slice(0, 5).map((r) =>
+      `  Floor ${String(r.depth_reached).padStart(3)}  Lv ${String(r.level).padEnd(3)} Gold ${r.gold}`).join("\n");
   if (daily) {  // stamp today's daily result for the title-menu status line
     const st = loadDaily();
     localStorage.setItem(LS_DAILY, JSON.stringify({ ...st, played: true, depth: snap.depth }));
@@ -943,8 +1061,50 @@ function gameOver() {
   recordHistory({
     date: new Date().toISOString(), mode: daily ? "daily" : snap.run_mode,
     depth_reached: snap.depth, level: p.level, gold: p.gold, kills: p.kills,
-    turns: p.turns, cause, seed: snap.seed, finished: false,
+    turns: p.turns, cause, seed: snap.seed, finished,
   });
+  return text;
+}
+
+function finishRunMetaTracking(finished) {
+  // Bestiary + achievements (M6) - applies to every mode/outcome (unlike
+  // recordNormalModeRun's leaderboard, which is normal/daily-only). Returns
+  // a "New achievement: X!" suffix to append to the stats text, or "".
+  mergeBestiaryFromRun();
+  const ctx = {
+    depth_reached: snap.depth, level: snap.player.level, gold: snap.player.gold,
+    kills: snap.player.kills, mode: snap.run_mode, finished,
+    is_daily: isDailyRun(),
+    breeds_seen: snap.player.breeds_seen, boss_kills: snap.player.boss_kills,
+  };
+  const newly = checkAchievementsFromRun(ctx);
+  if (!newly.length) return "";
+  return "\n\nNew achievement" + (newly.length > 1 ? "s" : "") + ": " +
+    newly.map((a) => a.name).join(", ") + "!";
+}
+
+function gameOver() {
+  mode = "gameover";
+  stopRunTimer();
+  const p = snap.player;
+  const cause = snap.cause_of_death || "Unknown causes.";
+  const achievementLine = finishRunMetaTracking(false);
+  $("gameover-stats").textContent =
+    `Cause of death: ${cause}\n\nDepth reached: ${snap.depth}\nLevel: ${p.level}\n` +
+    `Gold collected: ${p.gold}\nMonsters slain: ${p.kills}\nTurns survived: ${p.turns}\n` +
+    `Time: ${fmtTime(finalElapsed())}\nSeed: ${snap.seed}` + achievementLine;
+  if (snap.run_mode === "speedrun") {
+    const runs = recordSpeedrunRun();
+    $("gameover-highscores").textContent =
+      "Speedrun Leaderboard:\n" + speedrunScoreLines(runs, 5).join("\n");
+    recordHistory({
+      date: new Date().toISOString(), mode: "speedrun", depth_reached: snap.depth,
+      level: p.level, gold: p.gold, kills: p.kills, turns: p.turns,
+      cause, seed: snap.seed, finished: false,
+    });
+  } else {
+    $("gameover-highscores").textContent = recordNormalModeRun(cause, false);
+  }
   localStorage.removeItem(LS_SAVE);
   setReplayButtonsVisible("gameover");
   showScreen("gameover-screen");
@@ -955,18 +1115,27 @@ function victory() {
   mode = "victory";
   stopRunTimer();
   const p = snap.player;
-  $("victory-stats").textContent =
-    `Floor ${snap.target_floor} reached in ${fmtTime(finalElapsed())}!\n\n` +
-    `Level: ${p.level}\nGold collected: ${p.gold}\nMonsters slain: ${p.kills}\n` +
-    `Turns taken: ${p.turns}\nSeed: ${snap.seed}`;
-  const runs = recordSpeedrunRun();
-  $("victory-scores").textContent =
-    "Speedrun Leaderboard:\n" + speedrunScoreLines(runs, 5).join("\n");
-  recordHistory({
-    date: new Date().toISOString(), mode: "speedrun", depth_reached: snap.depth,
-    level: p.level, gold: p.gold, kills: p.kills, turns: p.turns,
-    cause: "Escaped the depths.", seed: snap.seed, finished: true,
-  });
+  const achievementLine = finishRunMetaTracking(true);
+  if (snap.run_mode === "speedrun") {
+    $("victory-stats").textContent =
+      `Floor ${snap.target_floor} reached in ${fmtTime(finalElapsed())}!\n\n` +
+      `Level: ${p.level}\nGold collected: ${p.gold}\nMonsters slain: ${p.kills}\n` +
+      `Turns taken: ${p.turns}\nSeed: ${snap.seed}` + achievementLine;
+    const runs = recordSpeedrunRun();
+    $("victory-scores").textContent =
+      "Speedrun Leaderboard:\n" + speedrunScoreLines(runs, 5).join("\n");
+    recordHistory({
+      date: new Date().toISOString(), mode: "speedrun", depth_reached: snap.depth,
+      level: p.level, gold: p.gold, kills: p.kills, turns: p.turns,
+      cause: "Escaped the depths.", seed: snap.seed, finished: true,
+    });
+  } else {
+    $("victory-stats").textContent =
+      `You conquered floor ${snap.depth}!\n\n` +
+      `Level: ${p.level}\nGold collected: ${p.gold}\nMonsters slain: ${p.kills}\n` +
+      `Turns taken: ${p.turns}\nTime: ${fmtTime(finalElapsed())}\nSeed: ${snap.seed}` + achievementLine;
+    $("victory-scores").textContent = recordNormalModeRun("Conquered the depths.", true);
+  }
   localStorage.removeItem(LS_SAVE);
   setReplayButtonsVisible("victory");
   showScreen("victory-screen");
@@ -1826,6 +1995,12 @@ document.addEventListener("keydown", (e) => {
       else if (e.key === "v" || e.key === "V") openReplayPicker();
       else if (e.key === "l" || e.key === "L") showLore(false);
       else if (e.key === "h" || e.key === "H") openGuide();
+      else if (e.key === "b" || e.key === "B") openBestiary();
+      else if (e.key === "a" || e.key === "A") openAchievements();
+      break;
+    case "bestiary":
+    case "achievements":
+      if (e.key === "Escape") toTitle();
       break;
     case "replay-picker":
       if (e.key === "Escape") toTitle();
@@ -2264,6 +2439,10 @@ $("btn-continue").addEventListener("click", continueGame);
 $("btn-title").addEventListener("click", toTitle);
 $("btn-lore").addEventListener("click", () => showLore(false));
 $("btn-help").addEventListener("click", openGuide);
+$("btn-bestiary").addEventListener("click", openBestiary);
+$("btn-achievements").addEventListener("click", openAchievements);
+$("bestiary-back").addEventListener("click", toTitle);
+$("achievements-back").addEventListener("click", toTitle);
 $("btn-daily").addEventListener("click", startDaily);
 $("score-view-top").addEventListener("click", () => setTitleScoreView("top"));
 $("score-view-recent").addEventListener("click", () => setTitleScoreView("recent"));

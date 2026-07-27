@@ -17,7 +17,7 @@ from . import constants as C
 from . import bosses as boss_module
 from .combat import resolve_attack
 from .dungeon import generate_floor, start_position, Chest, GroundItem
-from .entities import Player, generate_monster, generate_monster_of, make_mimic
+from .entities import Player, base_template_name, generate_monster, generate_monster_of, make_mimic
 from .fov import compute_fov
 from .items import (build_item_identity, generate_item, identity_key,
                      resolved_name, use_item as apply_item_effect)
@@ -105,6 +105,14 @@ class GameState:
         # own dedicated rng derived from the seed, NOT self.rng - purely
         # cosmetic, never touches the gameplay rng stream.
         self.item_identity = build_item_identity(self.seed)
+        # M6 bestiary: this run's newly-seen breeds / kill counts, keyed by
+        # base_template_name() so "Rat"/"Rat Elite"/"Rat Boss" all count
+        # toward one "Rat" entry. Merged into the PERSISTENT cross-run
+        # bestiary file/localStorage once at run-end (see save.py
+        # merge_bestiary / web's mergeBestiary) - not written continuously.
+        self.bestiary_seen: set = set()
+        self.bestiary_kills: dict = {}
+        self.boss_kills: int = 0  # M6 achievements ("Boss Slayer")
 
     def _record(self, code: str, *params):
         self.action_log.append([code, *params] if params else [code])
@@ -372,6 +380,11 @@ class GameState:
         if monster in self.floor.monsters:
             self.floor.monsters.remove(monster)
         self.player.kills += 1
+        name = base_template_name(monster.name)
+        self.bestiary_seen.add(name)
+        self.bestiary_kills[name] = self.bestiary_kills.get(name, 0) + 1
+        if monster.is_boss:
+            self.boss_kills += 1
         self._log(f"You defeated the {monster.name}! (+{monster.xp_reward} XP, +{monster.gold_reward} gold)")
         self.player.gold += monster.gold_reward
         self._emit("kill", x=monster.x, y=monster.y, boss=monster.is_boss,
@@ -407,6 +420,15 @@ class GameState:
             self.game_won = True
             self.game_over = True
             self._log(f"You reach floor {self.target_floor} and escape the depths with your life!")
+            self._emit("victory")
+        elif self.mode == "normal" and self.depth >= self.target_floor and not self.game_over:
+            # The same "reached the bottom" ending speedrun mode already has,
+            # for players who took their time instead of racing the clock -
+            # target_floor's boss arena already gates the stairs here, so
+            # reaching this point means that guardian is already dead.
+            self.game_won = True
+            self.game_over = True
+            self._log("You have conquered the Endless Depths and escaped with your life!")
             self._emit("victory")
 
     def _die(self):
@@ -779,6 +801,7 @@ class GameState:
             dist = abs(m.x - player.x) + abs(m.y - player.y)
             if floor.visible[m.y][m.x] or dist <= 1:
                 m.state = "chasing"
+                self.bestiary_seen.add(base_template_name(m.name))
 
             if m.is_boss:
                 turn_consumed = False

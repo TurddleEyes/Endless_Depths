@@ -19,7 +19,8 @@ from engine import bosses as boss_module
 from engine import constants as C
 from engine import puzzles as puzzle_module
 from engine import save as save_module
-from engine.entities import base_template_name
+from engine import achievements as achievements_module
+from engine.entities import MONSTER_TEMPLATES, base_template_name
 from engine.items import resolved_name
 from engine.world import GameState
 from engine.replay import (ReplayPlayer, build_replay_dict, replay_from_text,
@@ -110,6 +111,8 @@ class App(tk.Tk):
 
         self._build_title_screen()
         self._build_lore_screen()
+        self._build_bestiary_screen()
+        self._build_achievements_screen()
         self._build_play_screen()
         self._build_inventory_overlay()
         self._build_shop_overlay()
@@ -262,6 +265,14 @@ class App(tk.Tk):
         help_btn = tk.Button(self.title_frame, text="How to Play (H)", image=icon["book"],
                                command=self._open_guide, **btn_style)
         canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=help_btn)
+        y += 48
+        bestiary_btn = tk.Button(self.title_frame, text="Bestiary (B)", image=icon["book"],
+                                   command=self._show_bestiary, **btn_style)
+        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=bestiary_btn)
+        y += 48
+        achievements_btn = tk.Button(self.title_frame, text="Achievements (A)", image=icon["book"],
+                                       command=self._show_achievements, **btn_style)
+        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=achievements_btn)
         y += 48
 
         bottom_row = tk.Frame(self.title_frame, bg=T.BG)
@@ -613,6 +624,120 @@ class App(tk.Tk):
             save_module.save_settings(self.settings)
         self._show_title()
 
+    # ------------------------------------------------------------------
+    # Bestiary (M6) - a sprite grid over MONSTER_TEMPLATES, backed by the
+    # cross-run bestiary.json (engine/save.py). Undiscovered breeds show a
+    # plain "?" placeholder instead of their real sprite/name.
+    # ------------------------------------------------------------------
+    def _build_bestiary_screen(self):
+        self.bestiary_frame = tk.Frame(self, bg=T.BG, width=860, height=680)
+        self.bestiary_frame.pack_propagate(False)
+        tk.Label(self.bestiary_frame, text="BESTIARY", font=T.HEADER_FONT,
+                  bg=T.BG, fg=T.ACCENT).pack(pady=(20, 4))
+        self.bestiary_progress_label = tk.Label(self.bestiary_frame, text="", font=T.UI_FONT,
+                                                   bg=T.BG, fg=T.TEXT_DIM)
+        self.bestiary_progress_label.pack(pady=(0, 10))
+
+        grid_frame = tk.Frame(self.bestiary_frame, bg=T.BG)
+        grid_frame.pack()
+        cols = 7
+        self._bestiary_cells = []
+        self._bestiary_imgs = []
+        for i, (name, *_rest) in enumerate(MONSTER_TEMPLATES):
+            r, c = divmod(i, cols)
+            cell = tk.Frame(grid_frame, bg=T.PANEL_BG, highlightthickness=1,
+                              highlightbackground=T.PANEL_BORDER, width=115, height=110)
+            cell.grid(row=r, column=c, padx=3, pady=3)
+            cell.grid_propagate(False)
+            img_label = tk.Label(cell, bg=T.PANEL_BG)
+            img_label.pack(pady=(8, 2))
+            name_label = tk.Label(cell, text="???", font=("Courier", 8, "bold"),
+                                    bg=T.PANEL_BG, fg=T.TEXT_DIM, wraplength=108, justify="center")
+            name_label.pack()
+            kills_label = tk.Label(cell, text="", font=("Courier", 8),
+                                     bg=T.PANEL_BG, fg=T.TEXT_DIM)
+            kills_label.pack()
+            self._bestiary_cells.append((name, img_label, name_label, kills_label))
+
+        tk.Button(self.bestiary_frame, text="Back (Esc)", command=self._show_title,
+                   font=T.UI_FONT_BOLD, bg=T.PANEL_BG, fg=T.TEXT_MAIN, relief="flat", bd=0,
+                   highlightthickness=1, highlightbackground=T.PANEL_BORDER).pack(pady=14)
+
+    def _show_bestiary(self):
+        self._hide_all()
+        self.mode = "bestiary"
+        self._render_bestiary()
+        self.bestiary_frame.pack(expand=True)
+
+    def _render_bestiary(self):
+        data = save_module.load_bestiary()
+        self._bestiary_imgs = []
+        seen_count = 0
+        for name, img_label, name_label, kills_label in self._bestiary_cells:
+            entry = data.get(name)
+            if entry and entry.get("seen"):
+                seen_count += 1
+                key = sprite_defs.MONSTER_KEYS.get(name, "goblin")
+                img = sprite_defs.build_sprite_centered(key, 64, pad=2)
+                self._bestiary_imgs.append(img)
+                img_label.configure(image=img, text="")
+                name_label.configure(text=name, fg=T.TEXT_MAIN)
+                kills_label.configure(text=f"Kills: {entry.get('kills', 0)}")
+            else:
+                img_label.configure(image="", text="?", font=("Courier", 28), fg=T.TEXT_DIM)
+                name_label.configure(text="???", fg=T.TEXT_DIM)
+                kills_label.configure(text="")
+        total = len(self._bestiary_cells)
+        self.bestiary_progress_label.configure(text=f"Discovered: {seen_count} / {total}")
+
+    # ------------------------------------------------------------------
+    # Achievements (M6) - a simple scrollable list backed by the cross-run
+    # achievements.json (engine/save.py).
+    # ------------------------------------------------------------------
+    def _build_achievements_screen(self):
+        self.achievements_frame = tk.Frame(self, bg=T.BG, width=860, height=680)
+        self.achievements_frame.pack_propagate(False)
+        tk.Label(self.achievements_frame, text="ACHIEVEMENTS", font=T.HEADER_FONT,
+                  bg=T.BG, fg=T.ACCENT).pack(pady=(20, 4))
+        self.achievements_progress_label = tk.Label(self.achievements_frame, text="", font=T.UI_FONT,
+                                                       bg=T.BG, fg=T.TEXT_DIM)
+        self.achievements_progress_label.pack(pady=(0, 10))
+
+        body = tk.Frame(self.achievements_frame, bg=T.BG)
+        body.pack(fill="both", expand=True, padx=40)
+        scrollbar = tk.Scrollbar(body)
+        scrollbar.pack(side="right", fill="y")
+        self.achievements_text = tk.Text(body, font=("Courier", 10), bg=T.PANEL_BG, fg=T.TEXT_MAIN,
+                                           relief="flat", bd=0, wrap="word",
+                                           yscrollcommand=scrollbar.set, state="disabled")
+        self.achievements_text.pack(side="left", fill="both", expand=True)
+        scrollbar.configure(command=self.achievements_text.yview)
+        self.achievements_text.tag_configure("done", foreground=T.TEXT_GOOD)
+        self.achievements_text.tag_configure("locked", foreground=T.TEXT_DIM)
+
+        tk.Button(self.achievements_frame, text="Back (Esc)", command=self._show_title,
+                   font=T.UI_FONT_BOLD, bg=T.PANEL_BG, fg=T.TEXT_MAIN, relief="flat", bd=0,
+                   highlightthickness=1, highlightbackground=T.PANEL_BORDER).pack(pady=14)
+
+    def _show_achievements(self):
+        self._hide_all()
+        self.mode = "achievements"
+        self._render_achievements()
+        self.achievements_frame.pack(expand=True)
+
+    def _render_achievements(self):
+        unlocked = save_module.load_achievements()
+        self.achievements_text.configure(state="normal")
+        self.achievements_text.delete("1.0", tk.END)
+        for a in achievements_module.ACHIEVEMENTS:
+            done = a.id in unlocked
+            mark = "[x]" if done else "[ ]"
+            line = f"{mark} {a.name} - {a.description}\n"
+            self.achievements_text.insert(tk.END, line, "done" if done else "locked")
+        self.achievements_text.configure(state="disabled")
+        self.achievements_progress_label.configure(
+            text=f"Unlocked: {len(unlocked)} / {len(achievements_module.ACHIEVEMENTS)}")
+
     def _build_play_screen(self):
         self.play_frame = tk.Frame(self, bg=T.BG)
 
@@ -877,7 +1002,8 @@ class App(tk.Tk):
     # ------------------------------------------------------------------
     def _hide_all(self):
         for frame in (self.title_frame, self.lore_frame, self.play_frame,
-                       self.gameover_frame, self.victory_frame):
+                       self.gameover_frame, self.victory_frame,
+                       self.bestiary_frame, self.achievements_frame):
             frame.pack_forget()
         self.inventory_frame.place_forget()
         self.shop_frame.place_forget()
@@ -1018,33 +1144,17 @@ class App(tk.Tk):
     def _final_elapsed(self) -> float:
         return self._elapsed_at_end or (time.monotonic() - self._run_started_at)
 
-    def _show_gameover(self):
-        self._hide_all()
-        self.mode = "gameover"
+    def _record_normal_mode_run(self, cause: str, finished: bool) -> list:
+        """Shared by _show_gameover (death) and _show_victory (a normal-mode
+        floor-100 win): records to the highscore + rolling history files,
+        and marks today's daily done if this was a daily run. Returns the
+        score-panel text lines (header + top 5)."""
         p = self.state.player
-        cause = self.state.log[-2] if len(self.state.log) >= 2 else "Unknown causes."
-        self.gameover_stats_label.configure(
-            text=(f"Cause of death: {cause}\n\n"
-                  f"Depth reached: {self.state.depth}\n"
-                  f"Level: {p.level}\n"
-                  f"Gold collected: {p.gold}\n"
-                  f"Monsters slain: {p.kills}\n"
-                  f"Turns survived: {p.turns}\n"
-                  f"Time: {_fmt_time(self._final_elapsed())}\n"
-                  f"Seed: {self.state.seed}")
-        )
         is_daily = self._is_daily_run()
-        if self.state.mode == "speedrun":
-            runs = save_module.record_speedrun_run(self.state, self._final_elapsed())
-            lines = ["Speedrun Leaderboard:"]
-            for r in runs[:5]:
-                mark = "WIN " if r.get("finished") else f"F{r['depth_reached']:<3}"
-                lines.append(f"  {mark} {_fmt_time(r['elapsed_seconds']):>8}")
-        else:
-            runs = save_module.record_run(self.state, cause)
-            lines = ["Daily Challenge - done!" if is_daily else "High Scores:"]
-            for r in runs[:5]:
-                lines.append(f"  Floor {r['depth_reached']:>3}  Lv {r['level']:<3} Gold {r['gold']:<5}")
+        runs = save_module.record_run(self.state, cause)
+        lines = ["Daily Challenge - done!" if is_daily else "High Scores:"]
+        for r in runs[:5]:
+            lines.append(f"  Floor {r['depth_reached']:>3}  Lv {r['level']:<3} Gold {r['gold']:<5}")
         if is_daily:
             date_str, _ = save_module.daily_seed()
             save_module.save_daily({"date": date_str, "played": True, "depth": self.state.depth})
@@ -1053,8 +1163,56 @@ class App(tk.Tk):
             "mode": "daily" if is_daily else self.state.mode,
             "depth_reached": self.state.depth, "level": p.level, "gold": p.gold,
             "kills": p.kills, "turns": p.turns, "cause": cause, "seed": self.state.seed,
-            "finished": False,
+            "finished": finished,
         })
+        return lines
+
+    def _finish_run_meta_tracking(self, finished: bool) -> list:
+        """Bestiary + achievements (M6) - applies to every mode/outcome
+        (unlike _record_normal_mode_run's leaderboard, which is normal/
+        daily-only). Returns newly-unlocked Achievement objects, if any."""
+        save_module.merge_bestiary(self.state.bestiary_seen, self.state.bestiary_kills)
+        ctx = {
+            "depth_reached": self.state.depth, "level": self.state.player.level,
+            "gold": self.state.player.gold, "kills": self.state.player.kills,
+            "mode": self.state.mode, "finished": finished,
+            "is_daily": self._is_daily_run(),
+            "breeds_seen": len(self.state.bestiary_seen), "boss_kills": self.state.boss_kills,
+        }
+        return save_module.unlock_achievements(ctx)
+
+    def _show_gameover(self):
+        self._hide_all()
+        self.mode = "gameover"
+        p = self.state.player
+        cause = self.state.log[-2] if len(self.state.log) >= 2 else "Unknown causes."
+        stats_text = (f"Cause of death: {cause}\n\n"
+                      f"Depth reached: {self.state.depth}\n"
+                      f"Level: {p.level}\n"
+                      f"Gold collected: {p.gold}\n"
+                      f"Monsters slain: {p.kills}\n"
+                      f"Turns survived: {p.turns}\n"
+                      f"Time: {_fmt_time(self._final_elapsed())}\n"
+                      f"Seed: {self.state.seed}")
+        newly = self._finish_run_meta_tracking(finished=False)
+        if newly:
+            stats_text += "\n\nNew achievement" + ("s" if len(newly) > 1 else "") + \
+                ": " + ", ".join(a.name for a in newly) + "!"
+        self.gameover_stats_label.configure(text=stats_text)
+        if self.state.mode == "speedrun":
+            runs = save_module.record_speedrun_run(self.state, self._final_elapsed())
+            lines = ["Speedrun Leaderboard:"]
+            for r in runs[:5]:
+                mark = "WIN " if r.get("finished") else f"F{r['depth_reached']:<3}"
+                lines.append(f"  {mark} {_fmt_time(r['elapsed_seconds']):>8}")
+            save_module.record_run_history({
+                "date": datetime.now().isoformat(timespec="seconds"), "mode": "speedrun",
+                "depth_reached": self.state.depth, "level": p.level, "gold": p.gold,
+                "kills": p.kills, "turns": p.turns, "cause": cause, "seed": self.state.seed,
+                "finished": False,
+            })
+        else:
+            lines = self._record_normal_mode_run(cause, finished=False)
         save_module.delete_save()
         self.gameover_highscores_label.configure(text="\n".join(lines))
         self._set_replay_buttons_visible(self.gameover_replay_row, self.gameover_replay_status)
@@ -1066,26 +1224,43 @@ class App(tk.Tk):
         self.mode = "gameover"
         p = self.state.player
         elapsed = self._final_elapsed()
-        self.victory_stats_label.configure(
-            text=(f"Floor {self.state.target_floor} reached in {_fmt_time(elapsed)}!\n\n"
-                  f"Level: {p.level}\n"
-                  f"Gold collected: {p.gold}\n"
-                  f"Monsters slain: {p.kills}\n"
-                  f"Turns taken: {p.turns}\n"
-                  f"Seed: {self.state.seed}")
-        )
-        runs = save_module.record_speedrun_run(self.state, elapsed)
-        save_module.record_run_history({
-            "date": datetime.now().isoformat(timespec="seconds"), "mode": "speedrun",
-            "depth_reached": self.state.depth, "level": p.level, "gold": p.gold,
-            "kills": p.kills, "turns": p.turns, "cause": "Escaped the depths.",
-            "seed": self.state.seed, "finished": True,
-        })
+        newly = self._finish_run_meta_tracking(finished=True)
+        achievement_line = ""
+        if newly:
+            achievement_line = "\n\nNew achievement" + ("s" if len(newly) > 1 else "") + \
+                ": " + ", ".join(a.name for a in newly) + "!"
+        if self.state.mode == "speedrun":
+            self.victory_stats_label.configure(
+                text=(f"Floor {self.state.target_floor} reached in {_fmt_time(elapsed)}!\n\n"
+                      f"Level: {p.level}\n"
+                      f"Gold collected: {p.gold}\n"
+                      f"Monsters slain: {p.kills}\n"
+                      f"Turns taken: {p.turns}\n"
+                      f"Seed: {self.state.seed}" + achievement_line)
+            )
+            runs = save_module.record_speedrun_run(self.state, elapsed)
+            save_module.record_run_history({
+                "date": datetime.now().isoformat(timespec="seconds"), "mode": "speedrun",
+                "depth_reached": self.state.depth, "level": p.level, "gold": p.gold,
+                "kills": p.kills, "turns": p.turns, "cause": "Escaped the depths.",
+                "seed": self.state.seed, "finished": True,
+            })
+            lines = ["Speedrun Leaderboard:"]
+            for r in runs[:5]:
+                mark = "WIN " if r.get("finished") else f"F{r['depth_reached']:<3}"
+                lines.append(f"  {mark} {_fmt_time(r['elapsed_seconds']):>8}")
+        else:
+            self.victory_stats_label.configure(
+                text=(f"You conquered floor {self.state.depth}!\n\n"
+                      f"Level: {p.level}\n"
+                      f"Gold collected: {p.gold}\n"
+                      f"Monsters slain: {p.kills}\n"
+                      f"Turns taken: {p.turns}\n"
+                      f"Time: {_fmt_time(elapsed)}\n"
+                      f"Seed: {self.state.seed}" + achievement_line)
+            )
+            lines = self._record_normal_mode_run("Conquered the depths.", finished=True)
         save_module.delete_save()
-        lines = ["Speedrun Leaderboard:"]
-        for r in runs[:5]:
-            mark = "WIN " if r.get("finished") else f"F{r['depth_reached']:<3}"
-            lines.append(f"  {mark} {_fmt_time(r['elapsed_seconds']):>8}")
         self.victory_scores_label.configure(text="\n".join(lines))
         self._set_replay_buttons_visible(self.victory_replay_row, self.victory_replay_status)
         self.victory_frame.pack(expand=True)
@@ -1336,6 +1511,10 @@ class App(tk.Tk):
                 self._show_lore(first_time=False)
             elif event.keysym in ("h", "H"):
                 self._open_guide()
+            elif event.keysym in ("b", "B"):
+                self._show_bestiary()
+            elif event.keysym in ("a", "A"):
+                self._show_achievements()
         elif self.mode == "replay_picker":
             if event.keysym == "Escape":
                 self._close_replay_picker()
@@ -1355,6 +1534,9 @@ class App(tk.Tk):
                 self._lore_step(-1)
             elif ks == "Escape":
                 self._finish_lore()
+        elif self.mode in ("bestiary", "achievements"):
+            if event.keysym == "Escape":
+                self._show_title()
         elif self.mode == "gameover":
             # Only deliberate keys leave the end screen - a stray keypress
             # shouldn't skip past the Save Replay buttons.

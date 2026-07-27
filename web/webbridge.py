@@ -12,7 +12,8 @@ import json
 from engine import biomes as biome_module
 from engine import bosses as boss_module
 from engine import constants as C
-from engine.entities import base_template_name
+from engine import achievements as achievements_module
+from engine.entities import base_template_name, MONSTER_TEMPLATES
 from engine.items import resolved_name
 from engine.world import GameState
 from engine import puzzles as puzzle_module
@@ -61,6 +62,41 @@ def lore_json() -> str:
 
 def category_labels_json() -> str:
     return json.dumps(CATEGORY_LABELS)
+
+
+def bestiary_templates_json() -> str:
+    """Static per-breed reference data for the bestiary screen (name,
+    sprite key, baseline unscaled stats) - doesn't depend on STATE, safe to
+    call once at boot."""
+    templates = [
+        {"name": name, "sprite": S.MONSTER_KEYS.get(name, "goblin"),
+         "hp": hp, "attack": attack, "defense": defense,
+         "xp_reward": xp, "gold_reward": gold, "min_depth": min_depth}
+        for name, _glyph, hp, attack, defense, xp, gold, min_depth in MONSTER_TEMPLATES
+    ]
+    return json.dumps(templates)
+
+
+def bestiary_run_data_json() -> str:
+    """This run's newly-seen breeds/kill counts (M6) - the JS caller merges
+    this into its own PERSISTENT localStorage bestiary at run-end."""
+    return json.dumps({"seen": sorted(STATE.bestiary_seen), "kills": STATE.bestiary_kills})
+
+
+def achievements_defs_json() -> str:
+    return json.dumps([{"id": a.id, "name": a.name, "description": a.description}
+                        for a in achievements_module.ACHIEVEMENTS])
+
+
+def check_achievement_unlocks_json(ctx_json: str, unlocked_json: str) -> str:
+    """Pure achievement-check pass-through for the web build, which persists
+    unlocks in localStorage rather than a file (engine/save.py owns that
+    side for desktop) - JS supplies its own run-summary ctx and already-
+    unlocked id list, gets back the newly-earned entries to merge in."""
+    ctx = json.loads(ctx_json)
+    unlocked = set(json.loads(unlocked_json))
+    newly = achievements_module.check_unlocks(ctx, unlocked)
+    return json.dumps([{"id": a.id, "name": a.name, "description": a.description} for a in newly])
 
 
 def sfx_names_json() -> str:
@@ -394,6 +430,8 @@ def snapshot_json() -> str:
             "level": p.level, "xp": p.xp, "xp_to_next": p.xp_to_next,
             "gold": p.gold, "attack": p.attack_power, "defense": p.defense_power,
             "kills": p.kills, "turns": p.turns,
+            "breeds_seen": len(STATE.bestiary_seen),
+            "boss_kills": STATE.boss_kills,
             "poisoned": poison is not None,
             "weapon": p.equipped_weapon.name if p.equipped_weapon else None,
             "armor": p.equipped_armor.name if p.equipped_armor else None,

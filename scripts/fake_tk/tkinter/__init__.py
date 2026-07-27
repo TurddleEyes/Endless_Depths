@@ -156,7 +156,7 @@ class Text(Widget):
         super().__init__(master, **kw)
         self.content = ""
 
-    def insert(self, index, text):
+    def insert(self, index, text, *tags):
         self.content += text
 
     def delete(self, first, last=None):
@@ -166,6 +166,12 @@ class Text(Widget):
         return self.content
 
     def see(self, index):
+        pass
+
+    def yview(self, *a):
+        pass
+
+    def tag_configure(self, name, **kw):
         pass
 
 

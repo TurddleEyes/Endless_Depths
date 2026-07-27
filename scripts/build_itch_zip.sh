@@ -51,6 +51,7 @@ FILES=(
     web/title_logo.png
     web/title_icons.png
     engine/__init__.py
+    engine/achievements.py
     engine/biomes.py
     engine/bosses.py
     engine/combat.py

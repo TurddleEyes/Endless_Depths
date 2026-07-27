@@ -1270,7 +1270,7 @@ def test_seed_always_populated():
     print("OK: every GameState has a concrete integer seed")
 
 
-def test_speedrun_victory_condition():
+def test_speedrun_and_normal_victory_condition():
     state = GameState(seed=5, mode="speedrun", target_floor=3)
     state.new_game()
     state.take_events()
@@ -1278,13 +1278,101 @@ def test_speedrun_victory_condition():
     state._descend()
     assert state.game_won and state.game_over
     assert any(e["type"] == "victory" for e in state.take_events())
-    # A normal-mode game must never trigger victory.
-    normal = GameState(seed=5, mode="normal")
+
+    # M6: normal mode now ALSO wins upon reaching target_floor (100 by
+    # default) - the normal-mode ending payoff, reusing the exact same
+    # target_floor/game_won machinery speedrun mode already had. Never wins
+    # before reaching it, though.
+    normal = GameState(seed=5, mode="normal", target_floor=5)
     normal.new_game()
-    normal.depth = 500
-    normal._descend()
-    assert not normal.game_won
-    print("OK: speedrun victory fires at target floor; normal mode never does")
+    normal.depth = 3
+    normal._descend()  # -> depth 4, still short of target_floor
+    assert not normal.game_won, "normal mode must not win before reaching target_floor"
+    normal._descend()  # -> depth 5, reaches target_floor
+    assert normal.game_won and normal.game_over
+    assert any(e["type"] == "victory" for e in normal.take_events())
+    print("OK: speedrun AND normal mode both win at target_floor; normal mode never wins early")
+
+
+def test_bestiary_tracking_in_gamestate():
+    from engine.entities import generate_monster_of
+
+    state = GameState(seed=210)
+    state.new_game()
+    state.floor.monsters.clear()
+    px, py = state.player.x, state.player.y
+    rat = generate_monster_of("Rat", state.depth, px + 1, py)
+    state.floor.monsters.append(rat)
+    state.player.hp = state.player.max_hp = 10 ** 6
+    state.try_move_player(1, 0)  # bump-attacks the rat; also runs the monster-turn visibility check
+    assert "Rat" in state.bestiary_seen, "a monster in view/melee range should be marked seen"
+    if not rat.is_alive():
+        assert state.bestiary_kills.get("Rat", 0) >= 1
+        assert state.boss_kills == 0  # a plain Rat is neither boss nor elite
+    print("OK: GameState tracks bestiary_seen/bestiary_kills/boss_kills during play")
+
+
+def test_achievement_checks():
+    from engine import achievements as achievements_module
+
+    ctx = {"kills": 1, "depth_reached": 10, "gold": 1500, "level": 10,
+           "mode": "normal", "finished": True, "is_daily": False,
+           "breeds_seen": 26, "boss_kills": 1}
+    earned = {a.id for a in achievements_module.check_unlocks(ctx, set())}
+    for expect in ("first_blood", "delver", "conqueror", "boss_slayer",
+                   "menagerie", "rich", "veteran"):
+        assert expect in earned, f"expected {expect!r} to be earned by this context"
+    assert "deep_delver" not in earned, "depth 10 should not earn the floor-25 achievement"
+    assert "speed_demon" not in earned, "a normal-mode run should not earn the speedrun achievement"
+    assert "daily_doer" not in earned, "is_daily=False should not earn Daily Doer"
+
+    # Already-unlocked ids are skipped even if the context would still earn them.
+    again = achievements_module.check_unlocks(ctx, {"first_blood"})
+    assert not any(a.id == "first_blood" for a in again)
+    print("OK: achievement checks fire on the right stats and skip already-unlocked ids")
+
+
+def test_bestiary_and_achievements_persistence():
+    tmp_dir = os.environ.get("TMPDIR", "/tmp")
+    bestiary_path = os.path.join(tmp_dir, "roguelike_smoke_test_bestiary.json")
+    achievements_path = os.path.join(tmp_dir, "roguelike_smoke_test_achievements.json")
+    original_bestiary_path = save_module.BESTIARY_PATH
+    original_achievements_path = save_module.ACHIEVEMENTS_PATH
+    save_module.BESTIARY_PATH = bestiary_path
+    save_module.ACHIEVEMENTS_PATH = achievements_path
+    try:
+        for path in (bestiary_path, achievements_path):
+            if os.path.exists(path):
+                os.remove(path)
+
+        assert save_module.load_bestiary() == {}
+        save_module.merge_bestiary({"Rat", "Goblin"}, {"Rat": 3})
+        data = save_module.load_bestiary()
+        assert data["Rat"] == {"seen": True, "kills": 3}
+        assert data["Goblin"] == {"seen": True, "kills": 0}
+        # A second run's merge ADDS to kills and keeps seen breeds seen.
+        save_module.merge_bestiary({"Rat"}, {"Rat": 2})
+        data = save_module.load_bestiary()
+        assert data["Rat"]["kills"] == 5
+
+        assert save_module.load_achievements() == {}
+        ctx = {"kills": 1, "depth_reached": 100, "gold": 0, "level": 1,
+               "mode": "normal", "finished": True, "is_daily": False,
+               "breeds_seen": 1, "boss_kills": 0}
+        newly = save_module.unlock_achievements(ctx)
+        assert any(a.id == "conqueror" for a in newly)
+        unlocked = save_module.load_achievements()
+        assert "conqueror" in unlocked
+        # Re-checking the same context must not re-report an already-unlocked one.
+        newly_again = save_module.unlock_achievements(ctx)
+        assert not any(a.id == "conqueror" for a in newly_again)
+    finally:
+        save_module.BESTIARY_PATH = original_bestiary_path
+        save_module.ACHIEVEMENTS_PATH = original_achievements_path
+        for path in (bestiary_path, achievements_path):
+            if os.path.exists(path):
+                os.remove(path)
+    print("OK: bestiary/achievements persist across saves and don't re-unlock the same id twice")
 
 
 def _run_scripted_bot(state, max_iters=20000, stop_depth=12):
@@ -1371,6 +1459,11 @@ def _state_fingerprint(state):
         ),
         "status_effects": json.dumps(state.player.status_effects, sort_keys=True),
         "identified": sorted(state.player.identified),
+        # M6 bestiary/achievements tracking - mutable GameState fields, so
+        # they belong here same as everything else that changes during play.
+        "bestiary_seen": sorted(state.bestiary_seen),
+        "bestiary_kills": json.dumps(state.bestiary_kills, sort_keys=True),
+        "boss_kills": state.boss_kills,
         "tiles": ["".join(r) for r in state.floor.tiles],
         # boss_state (phase, cooldowns, pending ability, buffs - also used
         # by elites/kited regular monsters, see engine/bosses.py) is plain
@@ -1752,7 +1845,10 @@ if __name__ == "__main__":
     test_full_playthrough_simulation()
     test_save_load_roundtrip(scratch_save)
     test_seed_always_populated()
-    test_speedrun_victory_condition()
+    test_speedrun_and_normal_victory_condition()
+    test_bestiary_tracking_in_gamestate()
+    test_achievement_checks()
+    test_bestiary_and_achievements_persistence()
     test_replay_fidelity_full_playthrough()
     test_replay_rejects_garbage_gracefully()
     test_continued_save_not_replayable()

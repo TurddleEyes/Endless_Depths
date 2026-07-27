@@ -447,6 +447,44 @@ h1.victory { color: var(--warn); }
   margin: 10px 0 6px;
 }
 
+/* ---- bestiary (M6) ---- */
+#bestiary-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  max-width: 760px;
+  margin: 6px 0 16px;
+}
+.bestiary-cell {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 4px;
+  text-align: center;
+  font-size: 0.72em;
+}
+.bestiary-cell canvas { display: block; margin: 0 auto 4px; }
+.bestiary-cell .bname { color: var(--text); }
+.bestiary-cell .bkills { color: var(--dim); }
+.bestiary-cell.unseen .bname, .bestiary-cell.unseen .bkills { color: var(--dim); }
+.bestiary-cell .bplaceholder {
+  width: 48px; height: 48px; line-height: 48px;
+  margin: 0 auto 4px; color: var(--dim); font-size: 1.4em;
+}
+
+/* ---- achievements (M6) ---- */
+#achievements-list {
+  max-width: 620px;
+  text-align: left;
+  margin: 6px 0 16px;
+  line-height: 1.7;
+  font-size: 0.85em;
+  max-height: 480px;
+  overflow-y: auto;
+}
+.achievement-row.done { color: var(--good); }
+.achievement-row.locked { color: var(--dim); }
+
 #gameover-highscores, #gameover-stats {
   color: var(--dim);
   margin-top: 22px;

@@ -27,6 +27,8 @@ SPEEDRUN_SCORE_PATH = os.path.join(_BASE_DIR, C.SPEEDRUN_SCORE_FILE)
 SETTINGS_PATH = os.path.join(_BASE_DIR, "settings.json")
 DAILY_PATH = os.path.join(_BASE_DIR, C.DAILY_FILE)
 RUN_HISTORY_PATH = os.path.join(_BASE_DIR, C.RUN_HISTORY_FILE)
+BESTIARY_PATH = os.path.join(_BASE_DIR, C.BESTIARY_FILE)
+ACHIEVEMENTS_PATH = os.path.join(_BASE_DIR, C.ACHIEVEMENTS_FILE)
 
 
 def load_settings() -> dict:
@@ -168,6 +170,64 @@ def record_run_history(entry: dict) -> list:
     except OSError:
         pass
     return runs
+
+
+def load_bestiary() -> dict:
+    try:
+        with open(BESTIARY_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def merge_bestiary(seen, kills: dict) -> dict:
+    """Folds one run's newly-seen breeds/kill counts into the PERSISTENT
+    cross-run bestiary file - flushed once at run-end (same cadence as
+    run_history.json), not written continuously during play."""
+    data = load_bestiary()
+    for name in seen:
+        entry = data.setdefault(name, {"seen": True, "kills": 0})
+        entry["seen"] = True
+    for name, count in kills.items():
+        entry = data.setdefault(name, {"seen": True, "kills": 0})
+        entry["kills"] = entry.get("kills", 0) + count
+    try:
+        with open(BESTIARY_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except OSError:
+        pass
+    return data
+
+
+def load_achievements() -> dict:
+    try:
+        with open(ACHIEVEMENTS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def unlock_achievements(ctx: dict) -> list:
+    """Checks `ctx` (a run summary - see engine/achievements.py) against
+    every not-yet-unlocked achievement, persists any newly-earned ones with
+    today's timestamp, and returns just the newly-earned Achievement
+    objects (for a "you unlocked X!" notification - already-unlocked ones
+    are silent)."""
+    from . import achievements as achievements_module
+    data = load_achievements()
+    newly = achievements_module.check_unlocks(ctx, data)
+    if newly:
+        now = datetime.now().isoformat(timespec="seconds")
+        for a in newly:
+            data[a.id] = now
+        try:
+            with open(ACHIEVEMENTS_PATH, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except OSError:
+            pass
+    return newly
 
 
 def record_run(state, cause: str) -> list:
