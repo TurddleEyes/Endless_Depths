@@ -478,6 +478,53 @@ h1.victory { color: var(--warn); }
 }
 @keyframes reveal { from { opacity: 1; } to { opacity: 0; } }
 
+/* Transient right-side "toasts" - the default Messages mode. Anchored to the
+   stage's top-right (absolute, fixed px per the no-vw/vh stage rule), stacked
+   downward newest-on-top, each fading itself out via JS after a few seconds.
+   pointer-events:none so they never eat a tap on the map underneath. */
+#toast-layer {
+  position: absolute;
+  top: 80px; right: 20px;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  z-index: 6;
+  pointer-events: none;
+}
+body.portrait #toast-layer { top: 120px; right: 16px; width: 300px; }
+.toast {
+  max-width: 100%;
+  background: rgba(20, 20, 26, 0.92);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  padding: 9px 13px;
+  font-size: 22px;
+  line-height: 1.25;
+  color: var(--text);
+  text-align: left;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  animation: toast-in 0.22s ease-out;
+}
+.toast.leaving { animation: toast-out 0.4s ease-in forwards; }
+.toast .toast-amt { font-weight: bold; }
+.toast.cat-gold { border-left-color: #f2c94c; }
+.toast.cat-item { border-left-color: #5691e0; }
+.toast.cat-level { border-left-color: #3ecf4a; }
+.toast.cat-equip { border-left-color: #c956e0; }
+.toast.cat-xp { border-left-color: #66d9ef; }
+.toast.cat-loss { border-left-color: #e05656; }
+@keyframes toast-in {
+  from { transform: translateX(30px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes toast-out {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(30px); opacity: 0; }
+}
+
 #side-panel {
   width: 260px;
   background: var(--panel);
@@ -633,25 +680,33 @@ h1.victory { color: var(--warn); }
 }
 #touch-controls.enabled { display: flex; }
 
+/* Big, semi-transparent, floating D-pad: it now OVERLAPS the bottom of the
+   map (the layout no longer reserves a band for it - see applyDpadSetting in
+   main.js and the #log margins below), so it's deliberately see-through so
+   the map stays readable underneath. The empty container keeps
+   pointer-events:none, so taps between the buttons still fall through to the
+   canvas (tap-to-move keeps working around the pad); only the buttons
+   themselves capture input. :active jumps to solid accent for clear press
+   feedback despite the low resting opacity. */
 #dpad {
   display: grid;
-  grid-template-columns: repeat(3, 58px);
-  grid-template-rows: repeat(3, 58px);
-  gap: 5px;
+  grid-template-columns: repeat(3, 88px);
+  grid-template-rows: repeat(3, 88px);
+  gap: 6px;
   pointer-events: auto;
 }
 .dpad-btn {
   min-width: 0; margin: 0; padding: 0;
-  font-size: 20px;
-  background: rgba(27, 27, 33, 0.82);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  font-size: 32px;
+  background: rgba(27, 27, 33, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 14px;
   color: var(--text);
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
 }
-.dpad-btn:active { background: var(--accent); color: var(--bg); }
+.dpad-btn:active { background: var(--accent); color: var(--bg); opacity: 1; }
 #dpad-up { grid-column: 2; grid-row: 1; }
 #dpad-left { grid-column: 1; grid-row: 2; }
 #dpad-wait { grid-column: 2; grid-row: 2; }
@@ -661,23 +716,25 @@ h1.victory { color: var(--warn); }
 #touch-actions {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   margin-left: auto; /* stay right-aligned when the D-pad is hidden */
   pointer-events: auto;
 }
 body.dpad-off #touch-actions { flex-direction: row; }
 .touch-btn {
   min-width: 0; margin: 0;
-  width: 62px; height: 46px;
+  width: 84px; height: 62px;
   padding: 0;
-  font-size: 0.85em;
-  background: rgba(27, 27, 33, 0.82);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  font-size: 1em;
+  background: rgba(27, 27, 33, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 14px;
+  color: var(--text);
   touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
 }
+.touch-btn:active { background: var(--accent); color: var(--bg); }
 
 /* ---- portrait (9:16) layout - phones and narrow/tall windows ----
    Fixed px throughout (the 900x1600 stage is a known constant), replacing
@@ -752,10 +809,18 @@ body.portrait #log {
   width: 850px;
   height: 110px;
   font-size: 0.8em;
-  margin-bottom: 150px; /* keep the log clear of the fixed D-pad */
+  margin-bottom: 170px; /* keep the log clear of the (now bigger) floating D-pad */
 }
-body.portrait.dpad-off #log { margin-bottom: 64px; } /* only Bag/gear to clear */
+body.portrait.dpad-off #log { margin-bottom: 80px; } /* only Bag/gear to clear */
 body.portrait #footer { display: none; }
+
+/* Messages = Toasts mode (the default): the persistent log is hidden on BOTH
+   orientations to reclaim its real estate, and gains surface as transient
+   right-side toasts instead (see #toast-layer). The D-pad's bottom reserve
+   (margins above) is moot here since #log is gone - the pad simply floats
+   over the taller map. In Log mode the class is absent and the log shows as
+   before. */
+body.feed-toasts #log { display: none; }
 
 body.portrait .overlay-box {
   width: 860px;

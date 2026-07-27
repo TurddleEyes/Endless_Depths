@@ -274,7 +274,7 @@ class GameState:
             loot.append(f"{total_gold} gold")
         found = ", ".join(loot) if loot else "nothing but dust"
         self._log(f"You open the chest and find {found}.")
-        self._emit("chest_open", x=x, y=y)
+        self._emit("chest_open", x=x, y=y, toast=f"Chest: {found}", cat="item")
         self._end_turn()
 
     def _pickup_at(self, x: int, y: int):
@@ -286,11 +286,11 @@ class GameState:
         if item.category == "gold":
             self.player.gold += item.quantity
             self._log(f"You pick up {item.quantity} gold.")
-            self._emit("gold")
+            self._emit("gold", toast=f"+{item.quantity} gold", cat="gold")
         else:
             self.player.inventory.append(item)
             self._log(f"You pick up {item.display_name()}.")
-            self._emit("pickup")
+            self._emit("pickup", toast=item.display_name(), cat="item")
 
     def _player_attack(self, monster):
         damage, crit, msg = resolve_attack(
@@ -309,7 +309,8 @@ class GameState:
         self.player.kills += 1
         self._log(f"You defeated the {monster.name}! (+{monster.xp_reward} XP, +{monster.gold_reward} gold)")
         self.player.gold += monster.gold_reward
-        self._emit("kill", x=monster.x, y=monster.y, boss=monster.is_boss)
+        self._emit("kill", x=monster.x, y=monster.y, boss=monster.is_boss,
+                   toast=f"Defeated {monster.name}  +{monster.xp_reward} XP", cat="xp")
         if monster.is_boss and self.floor.boss_arena_sealed:
             self.floor.boss_arena_sealed = False
             sx, sy = self.floor.stairs_pos
@@ -320,7 +321,7 @@ class GameState:
         for m in levelup_msgs:
             self._log(m)
         if levelup_msgs:
-            self._emit("levelup")
+            self._emit("levelup", toast=f"Level {self.player.level}!", cat="level")
 
     def _descend(self):
         self.depth += 1
@@ -386,7 +387,7 @@ class GameState:
             return
         self._record("e", self.player.inventory.index(item))
         self._log(self.player.equip(item))
-        self._emit("equip")
+        self._emit("equip", toast=f"Equipped {item.name}", cat="equip")
 
     def drop_item(self, item):
         if item not in self.player.inventory:

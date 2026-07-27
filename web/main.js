@@ -52,6 +52,7 @@ const gameSettings = (() => {
     sfx_on: s.sfx_on ?? !legacyMuted,
     shake_on: s.shake_on ?? true,
     dpad_on: s.dpad_on ?? false, // tap-to-move is the default; D-pad is the fallback
+    feed_mode: s.feed_mode ?? "toasts", // "toasts" (default) or "log" for the message feed
   };
 })();
 
@@ -158,16 +159,16 @@ const mmCtx = minimap.getContext("2d");
 if (IS_TOUCH) $("touch-controls").classList.add("enabled");
 if (!IS_TOUCH) $("setting-dpad").classList.add("hidden");
 
-// The D-pad is opt-in; with it hidden, portrait gets a taller viewport.
-// Also resizes the canvas's tile grid when orientation changes (landscape
-// is always a fixed 26x16; portrait is 15 wide, 13 or 17 tall depending
-// on the D-pad).
+// The D-pad is opt-in. It's now a big, semi-transparent overlay that FLOATS
+// over the bottom of the play area (see the CSS) rather than sitting in a
+// reserved band, so enabling it no longer shrinks the map - portrait keeps
+// the full 15x17 viewport either way. (landscape is always a fixed 26x16.)
 function applyDpadSetting() {
   const on = IS_TOUCH && gameSettings.dpad_on;
   $("dpad").classList.toggle("hidden", !on);
   document.body.classList.toggle("dpad-off", !on);
   VIEW_COLS = orientation === "landscape" ? 26 : 15;
-  VIEW_ROWS = orientation === "landscape" ? 16 : (on ? 13 : 17);
+  VIEW_ROWS = orientation === "landscape" ? 16 : 17;
   const w = VIEW_COLS * TILE, h = VIEW_ROWS * TILE;
   if (canvas.width !== w || canvas.height !== h) {
     canvas.width = w;
@@ -175,6 +176,15 @@ function applyDpadSetting() {
     if (snap && floorData) render();
   }
 }
+
+// Messages feed: "toasts" (default) hides the persistent log and surfaces
+// gains as transient right-side popups; "log" shows the classic bottom log
+// and suppresses toasts. Purely presentational - it's just a body class the
+// CSS keys off of, plus the guard showToast() checks.
+function applyFeedSetting() {
+  document.body.classList.toggle("feed-toasts", gameSettings.feed_mode === "toasts");
+}
+applyFeedSetting();
 
 // Single entry point for both orientation switches and window resizes:
 // picks landscape/portrait from the real aspect ratio, flips the body
@@ -1110,6 +1120,10 @@ const EVENT_SFX = {
 function handleEvents(events) {
   lastEventTypes = new Set(events.map((ev) => ev.type));
   for (const ev of events) {
+    // Any event the engine tagged with a `toast` string surfaces as a
+    // right-side popup (in Toasts mode). The engine is the single source of
+    // both the wording and which events are toast-worthy - see world.py.
+    if (ev.toast) showToast(ev.toast, ev.cat);
     switch (ev.type) {
       case "hit":
         audio.play(ev.crit ? "crit" : "hit");
@@ -1226,6 +1240,25 @@ function shake() {
   wrap.classList.add("shake");
 }
 
+// Transient right-side toast (Toasts mode only). Newest on top; the stack is
+// capped so a burst (a chest dumping several items) can't fill the screen.
+// Each toast fades itself out after a few seconds, mirroring floatNum/fadeIn's
+// create-append-timeout-remove pattern.
+function showToast(text, cat) {
+  if (gameSettings.feed_mode !== "toasts") return;
+  const layer = $("toast-layer");
+  if (!layer) return;
+  const div = document.createElement("div");
+  div.className = "toast" + (cat ? " cat-" + cat : "");
+  div.textContent = text;
+  layer.insertBefore(div, layer.firstChild);
+  while (layer.children.length > 5) layer.lastChild.remove();
+  setTimeout(() => {
+    div.classList.add("leaving");
+    setTimeout(() => div.remove(), 400);
+  }, 3000);
+}
+
 /* ------------------------------------------------------------ settings */
 let settingsReturnMode = "title";
 
@@ -1233,6 +1266,7 @@ function refreshSettingsLabels() {
   $("setting-music").textContent = `Music: ${gameSettings.music_on ? "On" : "Off"}`;
   $("setting-sfx").textContent = `Sound Effects: ${gameSettings.sfx_on ? "On" : "Off"}`;
   $("setting-shake").textContent = `Screen Shake: ${gameSettings.shake_on ? "On" : "Off"}`;
+  $("setting-feed").textContent = `Messages: ${gameSettings.feed_mode === "toasts" ? "Toasts" : "Log"}`;
   $("setting-dpad").textContent = `Touch D-pad: ${gameSettings.dpad_on ? "On" : "Off"}`;
 }
 
@@ -1402,6 +1436,7 @@ function renderPanel() {
 }
 
 function renderLog() {
+  if (gameSettings.feed_mode === "toasts") return; // log is hidden; skip the work
   $("log").innerHTML = snap.log.map((l) => `<div>${escapeHtml(l)}</div>`).join("");
   $("log").scrollTop = $("log").scrollHeight;
 }
@@ -2119,6 +2154,13 @@ $("puzzle-close").addEventListener("click", closePuzzle);
 $("setting-music").addEventListener("click", () => toggleSetting("music_on"));
 $("setting-sfx").addEventListener("click", () => toggleSetting("sfx_on"));
 $("setting-shake").addEventListener("click", () => toggleSetting("shake_on"));
+$("setting-feed").addEventListener("click", () => {
+  gameSettings.feed_mode = gameSettings.feed_mode === "toasts" ? "log" : "toasts";
+  persistSettings();
+  applyFeedSetting();
+  refreshSettingsLabels();
+  if (snap && floorData) renderLog(); // repopulate the log immediately if just switched to Log mode
+});
 $("setting-dpad").addEventListener("click", () => {
   toggleSetting("dpad_on");
   applyDpadSetting();

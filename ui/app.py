@@ -81,6 +81,7 @@ class App(tk.Tk):
         self.settings.setdefault("sfx_on", not legacy_muted)
         self.settings.setdefault("shake_on", True)
         self.settings.setdefault("fullscreen_on", False)
+        self.settings.setdefault("feed_mode", "toasts")  # "toasts" (default) or "log"
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.audio = AudioManager(
             cache_dir=os.path.join(base_dir, "assets"),
@@ -314,6 +315,8 @@ class App(tk.Tk):
         self.setting_sfx_btn.pack(pady=4, padx=20)
         self.setting_shake_btn = tk.Button(f, command=lambda: self._toggle_setting("shake_on"), **style)
         self.setting_shake_btn.pack(pady=4, padx=20)
+        self.setting_feed_btn = tk.Button(f, command=self._toggle_feed, **style)
+        self.setting_feed_btn.pack(pady=4, padx=20)
         self.setting_fullscreen_btn = tk.Button(f, command=self._toggle_fullscreen, **style)
         self.setting_fullscreen_btn.pack(pady=4, padx=20)
         tk.Button(f, text="Close (Esc)", command=self._close_settings, **style).pack(pady=(12, 14))
@@ -324,6 +327,8 @@ class App(tk.Tk):
         self.setting_music_btn.configure(text=f"Music: {onoff('music_on')}")
         self.setting_sfx_btn.configure(text=f"Sound Effects: {onoff('sfx_on')}")
         self.setting_shake_btn.configure(text=f"Screen Shake: {onoff('shake_on')}")
+        feed = "Toasts" if self.settings.get("feed_mode", "toasts") == "toasts" else "Log"
+        self.setting_feed_btn.configure(text=f"Messages: {feed}")
         self.setting_fullscreen_btn.configure(text=f"Fullscreen: {'On' if self._fullscreen else 'Off'}")
 
     def _toggle_setting(self, key: str):
@@ -337,6 +342,16 @@ class App(tk.Tk):
             self.audio.set_sfx(self.settings[key])
         self._refresh_settings_labels()
         self._update_footer()
+
+    def _toggle_feed(self):
+        """Messages feed is a string ("toasts"|"log"), not a bool, so it can't
+        go through _toggle_setting. Toasts (default) hide the bottom log and
+        surface gains as transient top-right popups; Log restores the classic
+        bottom log and suppresses toasts."""
+        self.settings["feed_mode"] = "log" if self.settings.get("feed_mode", "toasts") == "toasts" else "toasts"
+        save_module.save_settings(self.settings)
+        self._apply_feed_setting()
+        self._refresh_settings_labels()
 
     def _open_settings(self):
         self._settings_return_mode = self.mode
@@ -576,18 +591,25 @@ class App(tk.Tk):
         panel.pack_propagate(False)
         self._build_stat_panel(panel)
 
-        log_frame = tk.Frame(self.play_frame, bg=T.PANEL_BG, width=canvas_w + 260, height=120)
-        log_frame.pack(side="top", pady=(6, 0))
-        log_frame.pack_propagate(False)
-        self.log_text = tk.Text(log_frame, bg=T.PANEL_BG, fg=T.TEXT_MAIN,
+        self.log_frame = tk.Frame(self.play_frame, bg=T.PANEL_BG, width=canvas_w + 260, height=120)
+        self.log_frame.pack(side="top", pady=(6, 0))
+        self.log_frame.pack_propagate(False)
+        self.log_text = tk.Text(self.log_frame, bg=T.PANEL_BG, fg=T.TEXT_MAIN,
                                   font=T.UI_FONT, wrap="word", state="disabled",
                                   bd=0, highlightthickness=0)
         self.log_text.pack(fill="both", expand=True, padx=8, pady=6)
+
+        # Toast stack: transient popups over the top-right of the map, used in
+        # Toasts mode (the default) in place of the bottom log. Placed over the
+        # canvas; each toast Label removes itself after a few seconds.
+        self.toast_frame = tk.Frame(self.canvas, bg=T.BG)
+        self._toasts: list = []
 
         self.footer_label = tk.Label(self.play_frame, text="", font=("Courier", 9),
                                        bg=T.BG, fg=T.TEXT_DIM)
         self.footer_label.pack(side="top", pady=(4, 4))
         self._update_footer()
+        self._apply_feed_setting()
 
     def _update_footer(self):
         sound = "off" if self.audio.muted else "on"
@@ -1304,6 +1326,11 @@ class App(tk.Tk):
         p = self.state.player
         for ev in self.state.take_events():
             et = ev["type"]
+            # Any engine event tagged with a `toast` surfaces as a top-right
+            # popup in Toasts mode (the guard lives in _show_toast). Same
+            # single-source contract the web build uses - see world.py.
+            if ev.get("toast"):
+                self._show_toast(ev["toast"], ev.get("cat"))
             if et == "hit":
                 self.audio.play("crit" if ev.get("crit") else "hit")
                 color = "#ffd24a" if ev.get("crit") else "#ffffff"
@@ -2033,9 +2060,59 @@ class App(tk.Tk):
                                     fill=T.TEXT_MAIN)
 
     def _render_log(self):
+        if self.settings.get("feed_mode", "toasts") == "toasts":
+            return  # log is hidden in Toasts mode; nothing to render
         self.log_text.configure(state="normal")
         self.log_text.delete("1.0", tk.END)
         for line in self.state.log[-12:]:
             self.log_text.insert(tk.END, line + "\n")
         self.log_text.see(tk.END)
         self.log_text.configure(state="disabled")
+
+    # ---- Messages feed: bottom log vs. transient top-right toasts ----
+    TOAST_COLORS = {
+        "gold": "#f2c94c", "item": "#5691e0", "level": "#3ecf4a",
+        "equip": "#c956e0", "xp": "#66d9ef", "loss": "#e05656",
+    }
+
+    def _apply_feed_setting(self):
+        """Show either the bottom log or the toast overlay, never both."""
+        if self.settings.get("feed_mode", "toasts") == "toasts":
+            self.log_frame.pack_forget()
+            self.toast_frame.place(relx=1.0, x=-8, y=8, anchor="ne")
+        else:
+            self._clear_toasts()
+            self.toast_frame.place_forget()
+            self.log_frame.pack(side="top", pady=(6, 0), before=self.footer_label)
+            if self.state is not None:
+                self._render_log()
+
+    def _clear_toasts(self):
+        for entry in self._toasts:
+            if entry.get("after"):
+                self.after_cancel(entry["after"])
+            entry["label"].destroy()
+        self._toasts = []
+
+    def _show_toast(self, text: str, cat: str = None):
+        if self.settings.get("feed_mode", "toasts") != "toasts":
+            return
+        color = self.TOAST_COLORS.get(cat, T.TEXT_MAIN)
+        lbl = tk.Label(self.toast_frame, text=text, font=T.UI_FONT_BOLD,
+                        bg=T.PANEL_BG, fg=color, justify="left", anchor="w",
+                        padx=10, pady=5, wraplength=240,
+                        highlightthickness=1, highlightbackground=color)
+        lbl.pack(side="top", anchor="e", pady=3)
+        entry = {"label": lbl, "after": None}
+        self._toasts.append(entry)
+        while len(self._toasts) > 5:
+            old = self._toasts.pop(0)
+            if old.get("after"):
+                self.after_cancel(old["after"])
+            old["label"].destroy()
+        entry["after"] = self.after(3200, lambda e=entry: self._remove_toast(e))
+
+    def _remove_toast(self, entry):
+        if entry in self._toasts:
+            self._toasts.remove(entry)
+        entry["label"].destroy()
