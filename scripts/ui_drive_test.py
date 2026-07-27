@@ -6,10 +6,12 @@ and button clicks), chests, and full-map renders that would crash on any
 missing sprite. Run with:
     python3 scripts/ui_drive_test.py
 """
+import io
 import os
 import random
 import sys
 import tempfile
+import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GAME = os.path.dirname(HERE)
@@ -149,6 +151,46 @@ for keysym, expected in (("Left", "left"), ("Up", "up"),
 assert len({k[-1] for k in app._hero_cache}) >= 4, "one cached pose per facing"
 print("OK: texture pack overrides rat, hero slots recolor, facing follows "
       "movement, corrupt file falls back with a warning")
+
+# ----------------------------------------------------------------------
+# Texture pack export/import (.edtp): build a small pack with a marker-
+# colored rat, zip it, import it through the real app method (redirecting
+# _IMPORTED_PACK_DIR to a temp dir so this never touches the real repo),
+# and confirm the hot-reload swaps the live sprite cache with no restart.
+# ----------------------------------------------------------------------
+_edtp_tmp = tempfile.mkdtemp(prefix="depths_edtp_test_")
+app._IMPORTED_PACK_DIR = os.path.join(_edtp_tmp, "imported_textures")
+
+_edtp_path = os.path.join(_edtp_tmp, "test.edtp")
+_pack_files = TP.build_pack_files()
+_rat_rel = next(k for k in _pack_files if k.endswith("/rat.png"))
+_EDTP_MARKER = "#00ff88"
+_marker_rows = [[(0x00, 0xFF, 0x88, 255)] * 32 for _ in range(32)]
+_pack_files[_rat_rel] = TP.encode_png(_marker_rows)
+with zipfile.ZipFile(_edtp_path, "w", zipfile.ZIP_STORED) as _zf:
+    for _rel, _data in _pack_files.items():
+        _zf.writestr(_rel, _data)
+
+with open(_edtp_path, "rb") as _f:
+    TP.extract_pack_zip_bytes(_f.read(), app._IMPORTED_PACK_DIR)
+app._apply_texture_pack_change(root=app._IMPORTED_PACK_DIR)
+assert set(app.sprites["rat"].pixels.values()) == {_EDTP_MARKER}, \
+    "importing a .edtp should hot-swap the live sprite cache, no restart"
+assert "rat" in sprites_module._PACK_SPRITES
+
+app._reset_texture_pack()
+assert not os.path.isdir(app._IMPORTED_PACK_DIR), "reset should remove the imported pack dir"
+
+# The exported zip must be a valid STORED-only archive containing every
+# sprite + hero piece + manifest/README (what the web build's Import path
+# depends on being able to parse without a DEFLATE decompressor).
+_exported = TP.build_pack_zip_bytes()
+with zipfile.ZipFile(io.BytesIO(_exported)) as _zf:
+    _bad = [i.filename for i in _zf.infolist() if i.compress_type != zipfile.ZIP_STORED]
+    assert not _bad, f"export must be STORED-only, found compressed entries: {_bad}"
+    assert "manifest.json" in _zf.namelist() and "README.md" in _zf.namelist()
+print("OK: texture pack export/import hot-reloads the live sprite cache; "
+      "reset removes it; exported .edtp is a valid STORED-only zip")
 
 # ----------------------------------------------------------------------
 # Movement, inventory, settings

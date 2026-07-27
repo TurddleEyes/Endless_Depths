@@ -3,6 +3,7 @@ Pyodide runs, driven locally without a browser. Run with:
     python3 scripts/web_smoke_test.py
 """
 import base64
+import io
 import json
 import os
 import sys
@@ -211,6 +212,62 @@ def test_texture_codec_and_pack():
         assert hero["base"] is not None and len(hero["weapons"]) == 5
     print("OK: PNG codec round-trips (all filters + palette), pack loader "
           "normalizes 16/32/64 and rejects bad files")
+
+
+def test_texture_pack_export():
+    """build_pack_files/build_pack_zip_bytes/write_pack_to_dir (ui/texture
+    pack.py) and webbridge's export_texture_pack_b64 wrapper - the shared
+    logic behind scripts/export_textures.py and both front-ends' "Export
+    Texture Pack" button."""
+    import tempfile
+    import zipfile
+    from ui import spritedata as S
+    from ui import texturepack as TP
+
+    files = TP.build_pack_files()
+    assert "manifest.json" in files and "README.md" in files
+    for key in S.SPRITE_DEFS:
+        assert f"{TP.category_for_key(key)}/{key}.png" in files, f"missing {key}"
+    for stem in (TP.HERO_BASE_STEM, TP.HERO_BASE_UP_STEM, TP.HERO_BASE_SIDE_STEM,
+                 TP.HERO_ACCESSORY_STEM):
+        assert f"hero/{stem}.png" in files, f"missing hero/{stem}.png"
+    for kind in S.HELD_WEAPONS:
+        assert f"hero/{TP.HERO_WEAPON_PREFIX}{kind}.png" in files
+
+    # The zip is STORED-only (the web import path relies on this to skip a
+    # DEFLATE decompressor) and round-trips through Python's own reader.
+    zip_bytes = TP.build_pack_zip_bytes()
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        names = set(zf.namelist())
+        assert names == set(files), "zip contents must match build_pack_files()"
+        for info in zf.infolist():
+            assert info.compress_type == zipfile.ZIP_STORED, f"{info.filename} isn't STORED"
+        assert zf.read("manifest.json") == files["manifest.json"]
+
+    # write_pack_to_dir: writes everything fresh, then never clobbers an
+    # edited file on a second pass unless force=True.
+    with tempfile.TemporaryDirectory() as root:
+        result = TP.write_pack_to_dir(root)
+        assert not result["kept"] and len(result["written"]) == len(files)
+        edited = os.path.join(root, "manifest.json")
+        with open(edited, "wb") as f:
+            f.write(b"hand-edited")
+        result2 = TP.write_pack_to_dir(root)
+        assert "manifest.json" in result2["kept"] and "manifest.json" not in result2["written"]
+        with open(edited, "rb") as f:
+            assert f.read() == b"hand-edited"
+        result3 = TP.write_pack_to_dir(root, force=True)
+        assert "manifest.json" in result3["written"]
+
+    # The web bridge just base64-wraps a fresh build_pack_zip_bytes() - not
+    # byte-identical (zipfile stamps each entry with the current time), but
+    # same members and same manifest content.
+    b64 = webbridge.export_texture_pack_b64()
+    with zipfile.ZipFile(io.BytesIO(base64.b64decode(b64))) as zf:
+        assert set(zf.namelist()) == set(files)
+        assert zf.read("manifest.json") == files["manifest.json"]
+    print(f"OK: build_pack_files/build_pack_zip_bytes/write_pack_to_dir cover "
+          f"all {len(files)} files; export_texture_pack_b64 matches")
 
 
 def test_game_flow():
@@ -489,6 +546,7 @@ if __name__ == "__main__":
     test_biome_sprite_completeness()
     test_hero_facings()
     test_texture_codec_and_pack()
+    test_texture_pack_export()
     test_game_flow()
     test_inventory_and_shop()
     test_save_load_roundtrip()

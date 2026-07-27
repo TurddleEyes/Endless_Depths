@@ -72,6 +72,7 @@ FILES=(
     ui/iteminfo.py
     ui/audio.py
     ui/lore.py
+    ui/texturepack.py
 )
 
 MISSING=()

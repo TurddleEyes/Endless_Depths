@@ -15,6 +15,10 @@ run_history.json
 bestiary.json
 achievements.json
 
+# A player-imported texture pack (ui/app.py "Import Texture Pack" /
+# web's session-only equivalent) - personal, never shipped in the repo.
+/imported_textures/
+
 # itch.io packaging output (scripts/build_itch_zip.sh) - zip + staging dir
 /dist/
 

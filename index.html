@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Endless Depths</title>
-<link rel="stylesheet" href="web/style.css?v=25">
+<link rel="stylesheet" href="web/style.css?v=26">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128481;</text></svg>">
 </head>
 <body>
@@ -211,6 +211,11 @@
       <button id="setting-feed" class="setting-btn">Messages: Toasts</button>
       <button id="setting-dpad" class="setting-btn">Touch D-pad: Off</button>
       <button id="setting-full" class="setting-btn">Toggle Fullscreen</button>
+      <button id="setting-export-pack" class="setting-btn">Export Texture Pack</button>
+      <button id="setting-import-pack" class="setting-btn">Import Texture Pack</button>
+      <button id="setting-reset-pack" class="setting-btn">Reset to Built-in Art</button>
+      <input type="file" id="texture-pack-input" accept=".edtp" class="hidden">
+      <div id="settings-status" class="status-text"></div>
       <div class="overlay-buttons"><button id="settings-close">Close (Esc)</button></div>
     </div>
   </div>
@@ -253,6 +258,6 @@
 </div>
 </div>
 <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
-<script src="web/main.js?v=25"></script>
+<script src="web/main.js?v=26"></script>
 </body>
 </html>

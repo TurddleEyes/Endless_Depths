@@ -23,6 +23,7 @@ from ui import spritedata as S
 from ui.iteminfo import CATEGORY_LABELS, RARITY_COLORS, describe_item, sell_price, sort_items
 from ui import audio as audio_synth
 from ui import lore as lore_data
+from ui import texturepack as texturepack_module
 
 # Halve the sample rate in the browser: WASM synthesis is slower than
 # native and the retro chiptune sound survives 11 kHz just fine.
@@ -62,6 +63,14 @@ def lore_json() -> str:
 
 def category_labels_json() -> str:
     return json.dumps(CATEGORY_LABELS)
+
+
+def export_texture_pack_b64() -> str:
+    """The built-in art, packaged the same way scripts/export_textures.py
+    and the desktop "Export Texture Pack" button do (a STORED-only zip),
+    base64-encoded so it can cross the Pyodide/JS boundary as a string for
+    the web "Export Texture Pack" download button."""
+    return base64.b64encode(texturepack_module.build_pack_zip_bytes()).decode("ascii")
 
 
 def bestiary_templates_json() -> str:

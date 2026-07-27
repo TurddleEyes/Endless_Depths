@@ -27,6 +27,7 @@ from engine.replay import (ReplayPlayer, build_replay_dict, replay_from_text,
                             replay_to_code)
 from . import theme as T
 from . import sprites as sprite_defs
+from . import texturepack as TP
 from .audio import AudioManager, track_for_depth
 from .iteminfo import RARITY_COLORS, describe_item, sell_price, sort_items
 from .widgets import ItemListPanel
@@ -359,7 +360,84 @@ class App(tk.Tk):
         self.setting_feed_btn.pack(pady=4, padx=20)
         self.setting_fullscreen_btn = tk.Button(f, command=self._toggle_fullscreen, **style)
         self.setting_fullscreen_btn.pack(pady=4, padx=20)
+        tk.Button(f, text="Export Texture Pack", command=self._export_texture_pack,
+                   **style).pack(pady=(10, 4), padx=20)
+        tk.Button(f, text="Import Texture Pack", command=self._import_texture_pack,
+                   **style).pack(pady=4, padx=20)
+        tk.Button(f, text="Reset to Built-in Art", command=self._reset_texture_pack,
+                   **style).pack(pady=4, padx=20)
+        self.settings_status_label = tk.Label(f, text="", font=("Courier", 9), bg=T.PANEL_BG,
+                                                fg=T.TEXT_DIM, wraplength=260, justify="center")
+        self.settings_status_label.pack(pady=(4, 0), padx=10)
         tk.Button(f, text="Close (Esc)", command=self._close_settings, **style).pack(pady=(12, 14))
+
+    # ------------------------------------------------------------------
+    # Texture pack export/import (M7) - a .edtp file is a ZIP (STORED/
+    # uncompressed entries) renamed; see ui/texturepack.py build_pack_
+    # zip_bytes/extract_pack_zip_bytes for why STORED-only matters (the web
+    # build's Import parses the zip's central directory in pure JS, no
+    # DEFLATE decompressor needed).
+    # ------------------------------------------------------------------
+    _IMPORTED_PACK_DIR = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), TP.IMPORTED_PACK_DIRNAME)
+
+    def _export_texture_pack(self):
+        from tkinter import filedialog
+        path = filedialog.asksaveasfilename(
+            defaultextension=".edtp",
+            filetypes=[("Endless Depths Texture Pack", "*.edtp")],
+            initialfile="endless_depths_textures.edtp",
+        )
+        if not path:
+            return
+        try:
+            with open(path, "wb") as f:
+                f.write(TP.build_pack_zip_bytes())
+        except OSError as exc:
+            self.settings_status_label.configure(text=f"Export failed: {exc}")
+            return
+        self.settings_status_label.configure(text=f"Exported to {os.path.basename(path)}.")
+
+    def _import_texture_pack(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            filetypes=[("Endless Depths Texture Pack", "*.edtp")],
+        )
+        if not path:
+            return
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+            TP.extract_pack_zip_bytes(data, self._IMPORTED_PACK_DIR)
+        except Exception as exc:  # noqa: BLE001 - a bad/foreign file must never crash the app
+            self.settings_status_label.configure(text=f"Import failed: {exc}")
+            return
+        # Reload from the exact directory just extracted to, rather than
+        # relying on reload_pack()'s own pack_root() auto-detection to
+        # independently arrive at the same path - more explicit, and lets
+        # tests point _IMPORTED_PACK_DIR elsewhere without fighting pack_root().
+        self._apply_texture_pack_change(root=self._IMPORTED_PACK_DIR)
+        self.settings_status_label.configure(
+            text=f"Imported {os.path.basename(path)} - active now, and on future launches.")
+
+    def _reset_texture_pack(self):
+        import shutil
+        if os.path.isdir(self._IMPORTED_PACK_DIR):
+            shutil.rmtree(self._IMPORTED_PACK_DIR)
+        self._apply_texture_pack_change(root=None)  # None -> pack_root()'s normal fallback chain
+        self.settings_status_label.configure(text="Reset to built-in art.")
+
+    def _apply_texture_pack_change(self, root=None):
+        """Common tail of Import/Reset: re-scan `root` (or auto-detect via
+        pack_root() when None) and rebuild every cached sprite/hero
+        PhotoImage from it. The title screen's baked-in preview images only
+        refresh on next launch/title rebuild - an active game re-renders
+        immediately."""
+        sprite_defs.reload_pack(root)
+        self.sprites = sprite_defs.build_sprites(zoom=T.TILE_SIZE // sprite_defs.SPRITE_PX)
+        self._hero_cache = {}
+        if getattr(self, "_settings_return_mode", "title") == "play" and self.state:
+            self._render()
 
     def _refresh_settings_labels(self):
         def onoff(key):

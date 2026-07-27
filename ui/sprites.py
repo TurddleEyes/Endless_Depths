@@ -19,10 +19,28 @@ from .spritedata import *  # noqa: F401,F403 - re-export grids/keys for app.py
 from .spritedata import _darken, _scale2x
 from . import texturepack as TP
 
-# One pack scan per process; warnings surface once on stderr.
-_PACK_SPRITES, _PACK_HERO, _PACK_WARNINGS = TP.load_pack(for_desktop=True)
-for _w in _PACK_WARNINGS:
-    print(f"texture pack: {_w}", file=sys.stderr)
+_PACK_SPRITES: dict = {}
+_PACK_HERO: dict = {}
+_PACK_WARNINGS: list = []
+
+
+def reload_pack(root: str | None = None) -> list:
+    """Re-scans a texture pack folder (None = pack_root()'s usual env-var/
+    imported_textures/textures priority chain) and swaps it in as the
+    active pack. Called once at import (below) and again by the desktop
+    "Import Texture Pack"/"Reset to Built-in Art" Settings buttons so a new
+    pack applies immediately, with no restart. Callers must ALSO clear
+    their own sprite/hero PhotoImage caches and rebuild (see ui/app.py's
+    _apply_texture_pack_change) - this only swaps the raw pixel data
+    build_sprites()/build_hero() etc. read from."""
+    global _PACK_SPRITES, _PACK_HERO, _PACK_WARNINGS
+    _PACK_SPRITES, _PACK_HERO, _PACK_WARNINGS = TP.load_pack(root=root, for_desktop=True)
+    for w in _PACK_WARNINGS:
+        print(f"texture pack: {w}", file=sys.stderr)
+    return _PACK_WARNINGS
+
+
+reload_pack()  # one pack scan per process at import; warnings surface once on stderr
 
 
 def _build_image(grid, palette, zoom: int) -> tk.PhotoImage:

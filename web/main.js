@@ -34,6 +34,7 @@ const PY_FILES = [
   "engine/achievements.py", "engine/biomes.py", "engine/items.py", "engine/puzzles.py", "engine/replay.py",
   "engine/save.py", "engine/shop.py", "engine/status.py", "engine/traits.py", "engine/world.py",
   "ui/__init__.py", "ui/spritedata.py", "ui/iteminfo.py", "ui/audio.py", "ui/lore.py",
+  "ui/texturepack.py",
 ];
 
 const LS_SAVE = "endless_depths_save";
@@ -423,12 +424,20 @@ async function applyTexturePack() {
   } catch {
     return; // no pack - built-in art everywhere
   }
+  await applyManifest(manifest, packLoadImage);
+}
+
+// Shared by the boot-time fetched pack (loadImage fetches "textures/"+path)
+// and the runtime Import button (loadImage reads bytes out of a parsed
+// in-memory .edtp zip instead) - everything past "how do I get an Image for
+// this path" is identical between the two.
+async function applyManifest(manifest, loadImage) {
   texPack.manifest = manifest;
   const dimKeys = new Set(manifest.dim_keys || []);
   const dimFactor = manifest.dim_factor || 0.45;
 
   const entries = Object.entries(manifest.files || {});
-  const images = await Promise.all(entries.map(([, path]) => packLoadImage(path)));
+  const images = await Promise.all(entries.map(([, path]) => loadImage(path)));
   let applied = 0;
   entries.forEach(([key, path], i) => {
     if (!atlas[key]) return; // unknown key: harmless leftover in the folder
@@ -439,12 +448,13 @@ async function applyTexturePack() {
     applied++;
   });
 
+  texPack.hero = null;
   const h = manifest.hero || {};
   if (h.base) {
-    const base = packPrep(await packLoadImage(h.base), h.base);
+    const base = packPrep(await loadImage(h.base), h.base);
     if (base) {
       const loadPiece = async (path) =>
-        path ? packPrep(await packLoadImage(path), path) : null;
+        path ? packPrep(await loadImage(path), path) : null;
       const weapons = {}, weaponsSide = {};
       for (const [kind, path] of Object.entries(h.weapons || {})) {
         weapons[kind] = await loadPiece(path);
@@ -460,13 +470,125 @@ async function applyTexturePack() {
         weaponsSide,
         accessory: await loadPiece(h.accessory),
       };
-      heroCache = {}; // rebuild hero variants from the pack
     }
   }
+  heroCache = {}; // rebuild hero variants (pack or reverted-to-built-in)
   if (applied || texPack.hero) {
     console.log(`texture pack: ${applied} sprite overrides` +
                 (texPack.hero ? " + hero" : ""));
   }
+  return applied;
+}
+
+// Reads a STORED-only (uncompressed) zip's Central Directory directly out
+// of an ArrayBuffer - no DEFLATE decompressor needed since scripts/export
+// _textures.py / ui/texturepack.py only ever write ZIP_STORED entries.
+// Returns a Map of zip-internal path -> Uint8Array of that entry's raw
+// bytes. Throws with a user-facing message on anything that isn't a
+// well-formed, all-STORED zip (a hand-edited or foreign .edtp file).
+function parseStoredZip(buf) {
+  const data = new Uint8Array(buf);
+  const dv = new DataView(buf);
+  const EOCD_SIG = 0x06054b50;
+  const maxBack = Math.min(data.length, 65557); // EOCD (22B) + max 65535B comment
+  let eocdOffset = -1;
+  for (let i = data.length - 22; i >= data.length - maxBack; i--) {
+    if (i >= 0 && dv.getUint32(i, true) === EOCD_SIG) { eocdOffset = i; break; }
+  }
+  if (eocdOffset < 0) {
+    throw new Error("that isn't a valid .edtp file (no zip end-of-directory record)");
+  }
+  const totalEntries = dv.getUint16(eocdOffset + 10, true);
+  let offset = dv.getUint32(eocdOffset + 16, true);
+
+  const CFH_SIG = 0x02014b50, LFH_SIG = 0x04034b50;
+  const decoder = new TextDecoder();
+  const files = new Map();
+  for (let i = 0; i < totalEntries; i++) {
+    if (dv.getUint32(offset, true) !== CFH_SIG) {
+      throw new Error("that .edtp file's central directory is corrupt");
+    }
+    const method = dv.getUint16(offset + 10, true);
+    const compSize = dv.getUint32(offset + 20, true);
+    const nameLen = dv.getUint16(offset + 28, true);
+    const extraLen = dv.getUint16(offset + 30, true);
+    const commentLen = dv.getUint16(offset + 32, true);
+    const localOffset = dv.getUint32(offset + 42, true);
+    const name = decoder.decode(data.subarray(offset + 46, offset + 46 + nameLen));
+    if (method !== 0) {
+      throw new Error(`that .edtp file is compressed ("${name}") - only ` +
+                       "uncompressed packs exported by this game are supported");
+    }
+    if (dv.getUint32(localOffset, true) !== LFH_SIG) {
+      throw new Error("that .edtp file's local file header is corrupt");
+    }
+    const lNameLen = dv.getUint16(localOffset + 26, true);
+    const lExtraLen = dv.getUint16(localOffset + 28, true);
+    const dataStart = localOffset + 30 + lNameLen + lExtraLen;
+    files.set(name, data.subarray(dataStart, dataStart + compSize));
+    offset += 46 + nameLen + extraLen + commentLen;
+  }
+  return files;
+}
+
+function packLoadImageFromZip(zipFiles) {
+  return (path) => new Promise((resolve) => {
+    const bytes = zipFiles.get(path);
+    if (!bytes) { resolve(null); return; }
+    const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+    img.src = url;
+  });
+}
+
+function setSettingsStatus(text) {
+  $("settings-status").textContent = text;
+}
+
+function exportTexturePack() {
+  const b64 = bridge.export_texture_pack_b64();
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const blob = new Blob([bytes], { type: "application/octet-stream" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "endless_depths_textures.edtp";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+  setSettingsStatus("Exported endless_depths_textures.edtp.");
+}
+
+async function importTexturePackFile(file) {
+  let manifest, zipFiles;
+  try {
+    const buf = await file.arrayBuffer();
+    zipFiles = parseStoredZip(buf);
+    const manifestBytes = zipFiles.get("manifest.json");
+    if (!manifestBytes) throw new Error("missing manifest.json - not an Endless Depths texture pack");
+    manifest = JSON.parse(new TextDecoder().decode(manifestBytes));
+  } catch (err) {
+    setSettingsStatus(`Import failed: ${err.message}`);
+    return;
+  }
+  const applied = await applyManifest(manifest, packLoadImageFromZip(zipFiles));
+  drawTitleHero();
+  setSettingsStatus(`Imported ${applied} sprite override(s)` +
+                     (texPack.hero ? " + hero art" : "") +
+                     " for this session (not saved across reloads).");
+}
+
+function resetTexturePack() {
+  buildAtlas(JSON.parse(bridge.sprite_atlas_json()));
+  texPack.hero = null;
+  texPack.manifest = null;
+  heroCache = {};
+  drawTitleHero();
+  setSettingsStatus("Reset to built-in art.");
 }
 
 function packHeroBase(facing) {
@@ -1607,6 +1729,7 @@ function openSettings() {
 function closeSettings() {
   $("settings-overlay").classList.add("hidden");
   mode = settingsReturnMode;
+  if (mode === "play") render(); // picks up any texture pack change made while open
 }
 
 function toggleSetting(key) {
@@ -2562,6 +2685,14 @@ $("setting-dpad").addEventListener("click", () => {
   applyDpadSetting();
 });
 $("setting-full").addEventListener("click", toggleFullscreen);
+$("setting-export-pack").addEventListener("click", exportTexturePack);
+$("setting-import-pack").addEventListener("click", () => $("texture-pack-input").click());
+$("setting-reset-pack").addEventListener("click", resetTexturePack);
+$("texture-pack-input").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  e.target.value = ""; // allow re-selecting the same file later
+  if (file) importTexturePackFile(file);
+});
 $("inv-action").addEventListener("click", inventoryActivate);
 $("inv-drop").addEventListener("click", inventoryDrop);
 $("inv-close").addEventListener("click", closeInventory);

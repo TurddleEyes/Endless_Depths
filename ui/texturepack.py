@@ -24,10 +24,13 @@ Pixels are RGBA tuples; alpha < 128 counts as transparent.
 """
 from __future__ import annotations
 
+import io
+import json
 import os
 import struct
 import zlib
 
+from . import spritedata as _S
 from .spritedata import DIM_FACTOR
 
 PACK_ENV = "ENDLESS_DEPTHS_TEXTURES"   # test/power-user override for the root
@@ -321,12 +324,21 @@ def grid_to_px(grid, palette):
 # ----------------------------------------------------------------------
 # Pack loading
 # ----------------------------------------------------------------------
+IMPORTED_PACK_DIRNAME = "imported_textures"  # desktop's "Import Texture Pack" target
+
+
 def pack_root() -> str:
-    """The textures/ folder next to the game (or the env override)."""
+    """Priority: the env override (test/power-user), then a desktop-
+    imported pack (imported_textures/ - see ui/app.py's Import Texture Pack
+    button, which extracts a .edtp here so it survives app restarts with no
+    extra settings.json bookkeeping), then the default textures/ folder."""
     override = os.environ.get(PACK_ENV)
     if override:
         return override
     game_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    imported = os.path.join(game_dir, IMPORTED_PACK_DIRNAME)
+    if os.path.isdir(imported):
+        return imported
     return os.path.join(game_dir, "textures")
 
 
@@ -396,3 +408,208 @@ def load_pack(root: str | None = None, for_desktop: bool = True):
             else:
                 sprites[stem] = rows
     return sprites, hero, warnings
+
+
+# ----------------------------------------------------------------------
+# Pack export - builds the SAME layout scripts/export_textures.py has
+# always produced (one PNG per sprite under tiles/monsters/items/traps/
+# decor/misc/, hero pieces under hero/, manifest.json + README.md), but as
+# pure in-memory bytes so it can run identically under Pyodide (the web
+# build's "Export Texture Pack" button) and desktop, with the CLI script
+# reduced to a thin wrapper around write_pack_to_dir(). See
+# build_pack_zip_bytes() for the .edtp download both front-ends use.
+# ----------------------------------------------------------------------
+_TILE_KEYS = {"floor", "floor2", "floor3", "wall", "wall2", "stairs",
+              "door_rune", "door_boss", "chest", "block", "lever_up",
+              "lever_down", "plate_off", "plate_on", "rune_switch"}
+
+
+def category_for_key(key: str) -> str:
+    if key in _TILE_KEYS:
+        return "tiles"
+    if key in set(_S.MONSTER_KEYS.values()) | {"shopkeeper"}:
+        return "monsters"
+    if key in set(_S.ITEM_KEYS.values()):
+        return "items"
+    if key in set(_S.TRAP_KEYS.values()):
+        return "traps"
+    if key in set(_S.DECOR_SPRITES):
+        return "decor"
+    return "misc"
+
+
+def build_pack_files() -> dict:
+    """Every file a fresh vanilla pack contains, as {relative_path: png/
+    text bytes} - the single source of truth write_pack_to_dir() (CLI/
+    desktop, writes real files) and build_pack_zip_bytes() (both front-
+    ends' Export button, zips in memory) both build from."""
+    files: dict = {}
+
+    # Every shipped sprite (already 32x32 post-Scale2x).
+    for key, (grid, palette) in sorted(_S.SPRITE_DEFS.items()):
+        rows = grid_to_px(grid, palette)
+        files[f"{category_for_key(key)}/{key}.png"] = encode_png(rows)
+
+    # Hero pieces, upscaled from their 16px sources the same way the game
+    # ships them. Slot colors (see manifest) stay at their default RGBs so
+    # the runtime recolor keeps working on edited art.
+    hero_pieces = {HERO_BASE_STEM: _S.HERO_BASE,
+                   HERO_BASE_UP_STEM: _S.HERO_BASE_UP,
+                   HERO_BASE_SIDE_STEM: _S.HERO_BASE_SIDE,
+                   HERO_ACCESSORY_STEM: _S.ACCESSORY_OVERLAY}
+    for kind, overlay in _S.HELD_WEAPONS.items():
+        hero_pieces[f"{HERO_WEAPON_PREFIX}{kind}"] = overlay
+    for kind, overlay in _S.HELD_WEAPONS_SIDE.items():
+        hero_pieces[f"{HERO_WEAPON_PREFIX}{kind}{HERO_SIDE_SUFFIX}"] = overlay
+    for stem, grid in sorted(hero_pieces.items()):
+        rows = grid_to_px(_S._scale2x(grid), _S.PLAYER_PALETTE)
+        files[f"hero/{stem}.png"] = encode_png(rows)
+
+    # Manifest + README derive from the file list just built (mirrors the
+    # CLI script's original "regenerate from what's actually on disk" -
+    # here that's just "from what's in this dict").
+    manifest_files, hero_files = {}, {"weapons": {}, "weapons_side": {}}
+    for rel in sorted(files):
+        if not rel.endswith(".png"):
+            continue
+        stem = os.path.splitext(os.path.basename(rel))[0]
+        if stem == HERO_BASE_STEM:
+            hero_files["base"] = rel
+        elif stem == HERO_BASE_UP_STEM:
+            hero_files["base_up"] = rel
+        elif stem == HERO_BASE_SIDE_STEM:
+            hero_files["base_side"] = rel
+        elif stem == HERO_ACCESSORY_STEM:
+            hero_files["accessory"] = rel
+        elif stem.startswith(HERO_WEAPON_PREFIX):
+            kind = stem[len(HERO_WEAPON_PREFIX):]
+            if kind.endswith(HERO_SIDE_SUFFIX):
+                hero_files["weapons_side"][kind[:-len(HERO_SIDE_SUFFIX)]] = rel
+            else:
+                hero_files["weapons"][kind] = rel
+        else:
+            manifest_files[stem] = rel
+
+    manifest = {
+        "version": 1,
+        "sprite_px": _S.SPRITE_PX,
+        "accepted_sizes": list(ACCEPTED_SIZES),
+        "files": manifest_files,
+        "hero": hero_files,
+        "slots": {
+            "tunic": _S.ARMOR_TUNIC_COLORS["none"],
+            "blade": _S.BLADE_RARITY_COLORS["common"],
+            "skin": _S.PLAYER_PALETTE["f"],
+        },
+        "colors": {
+            "tunic_by_armor": _S.ARMOR_TUNIC_COLORS,
+            "blade_by_rarity": _S.BLADE_RARITY_COLORS,
+            "poisoned_skin": _S.POISONED_SKIN,
+        },
+        "dim_factor": _S.DIM_FACTOR,
+        "dim_keys": list(_S.DIM_TILES),
+    }
+    files["manifest.json"] = json.dumps(manifest, indent=1, sort_keys=True).encode("utf-8")
+    files["README.md"] = _readme(manifest).encode("utf-8")
+    return files
+
+
+def write_pack_to_dir(root: str, force: bool = False) -> dict:
+    """Writes build_pack_files()'s output to real files under `root`,
+    never overwriting an existing file unless force=True (hand-edited
+    textures survive re-running the export after a game update). Used by
+    scripts/export_textures.py and desktop's own export path."""
+    written, kept = [], []
+    files = build_pack_files()
+    for rel, data in files.items():
+        path = os.path.join(root, rel)
+        if os.path.exists(path) and not force:
+            kept.append(rel)
+            continue
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(data)
+        written.append(rel)
+    n_png = sum(1 for rel in files if rel.endswith(".png") and "/" in rel
+                and not rel.startswith("hero/"))
+    n_hero = sum(1 for rel in files if rel.startswith("hero/"))
+    return {"written": written, "kept": kept, "files": n_png, "hero": n_hero}
+
+
+def build_pack_zip_bytes() -> bytes:
+    """The .edtp download both front-ends' Export Texture Pack button
+    produces - a STORED (uncompressed) zip of build_pack_files()'s output.
+    STORED-only is deliberate: it lets the web build's Import path parse
+    the zip's central directory and read raw bytes directly in JS, with no
+    DEFLATE decompressor needed."""
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
+        for rel, data in build_pack_files().items():
+            zf.writestr(rel, data)
+    return buf.getvalue()
+
+
+def extract_pack_zip_bytes(data: bytes, root: str) -> None:
+    """Extracts a .edtp's ZIP content into `root`, replacing anything
+    already there - used by desktop's Import Texture Pack (the web build
+    parses the zip client-side in JS instead, no Python round-trip)."""
+    import io as _io
+    import shutil
+    import zipfile
+    if os.path.isdir(root):
+        shutil.rmtree(root)
+    os.makedirs(root, exist_ok=True)
+    with zipfile.ZipFile(_io.BytesIO(data)) as zf:
+        zf.extractall(root)
+
+
+def reload_pack(root: str | None, for_desktop: bool = True) -> list:
+    """Re-scans `root` (or the default pack_root()) and returns the fresh
+    (sprites, hero, warnings) tuple - the same shape load_pack() returns.
+    Callers (ui/sprites.py's set_active_pack) are responsible for actually
+    swapping the module-level caches; this function is pure."""
+    return load_pack(root=root, for_desktop=for_desktop)
+
+
+def _readme(manifest: dict) -> str:
+    return f"""# Endless Depths - texture pack folder
+
+Every PNG here overrides one built-in sprite; the file's NAME (not its
+folder) is the sprite it replaces. Edit with any image editor, save, and
+restart the game (browser: hard refresh). Delete a file - or this whole
+folder - to get the built-in art back. A broken or wrong-size file is
+skipped with a console warning, never a crash.
+
+## Rules
+
+- Sizes allowed: 16x16 (auto-upscaled), 32x32 (native), or 64x64
+  (HD - full detail in the browser, downscaled on desktop).
+- Transparency: use a real alpha channel. Pixels with alpha < 128 are
+  treated as fully transparent.
+- Save as a normal non-interlaced PNG (every editor's default).
+- Do not rename files: the stem IS the sprite key.
+
+## The hero (textures/hero/)
+
+The player is assembled at runtime from facing-specific pieces:
+`hero_base.png` (walking down/toward you), `hero_base_up.png` (walking
+away), `hero_base_side.png` (walking right - left is auto-mirrored),
+plus one `weapon_*.png` overlay (front view) or `weapon_*_side.png`
+(side view; no weapon shows when facing up) and `accessory.png`, then
+recolored. Three exact colors in these files act as RECOLOR SLOTS -
+keep using them wherever you want the dynamic colors to apply:
+
+- tunic slot  `{manifest["slots"]["tunic"]}` - repainted by equipped armor
+- blade slot  `{manifest["slots"]["blade"]}` - repainted by weapon rarity
+- skin slot   `{manifest["slots"]["skin"]}` - turns green when poisoned
+
+Any other color is left exactly as you painted it.
+
+## Sharing a pack
+
+Zip this folder. Installing a pack = replacing this folder's contents.
+`manifest.json` and this README are regenerated by
+`python3 scripts/export_textures.py`, which also restores any deleted
+default PNGs without touching your edited ones.
+"""
