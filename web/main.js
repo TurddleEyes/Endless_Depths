@@ -39,6 +39,9 @@ const PY_FILES = [
 const LS_SAVE = "endless_depths_save";
 const LS_SCORES = "endless_depths_scores";
 const LS_SPEEDRUN_SCORES = "endless_depths_speedrun_scores";
+const LS_DAILY = "endless_depths_daily";      // {date, played, depth} - one attempt/day lock
+const LS_HISTORY = "endless_depths_history";  // last N runs of any mode, newest first
+const HISTORY_MAX = 20;
 const LS_SEEN_LORE = "endless_depths_seen_lore";
 const LS_SETTINGS = "endless_depths_settings";
 
@@ -651,7 +654,8 @@ function toTitle() {
   mode = "title";
   showScreen("title-screen");
   $("btn-continue").disabled = !localStorage.getItem(LS_SAVE);
-  renderTitleHighscores();
+  refreshDailyButton();
+  renderTitleScores();
   audio.playMusic("depths");
 }
 
@@ -749,6 +753,103 @@ function renderTitleHighscores() {
     : "Speedrun: race to floor 100.\nNo attempts yet.";
 }
 
+/* -------------------------------------------------- daily + run history */
+let dailyToday = null;          // {date, seed} for today, from the engine
+let titleScoreView = "top";     // "top" | "recent" - the title panel toggle
+
+function getDailyToday() {
+  // Cache today's (date, seed) from the same engine helper the desktop uses.
+  if (!dailyToday || dailyToday.date !== new Date().toISOString().slice(0, 10)) {
+    try { dailyToday = JSON.parse(bridge.daily_seed_json()); }
+    catch { dailyToday = null; }
+  }
+  return dailyToday;
+}
+
+function loadDaily() {
+  try { return JSON.parse(localStorage.getItem(LS_DAILY)) || {}; }
+  catch { return {}; }
+}
+
+function dailyPlayedToday() {
+  const d = getDailyToday();
+  const st = loadDaily();
+  return !!(d && st.date === d.date && st.played);
+}
+
+function loadHistory() {
+  try { return JSON.parse(localStorage.getItem(LS_HISTORY)) || []; }
+  catch { return []; }
+}
+
+function recordHistory(entry) {
+  const runs = loadHistory();
+  runs.unshift(entry);                         // newest first
+  localStorage.setItem(LS_HISTORY, JSON.stringify(runs.slice(0, HISTORY_MAX)));
+}
+
+function historyLines(runs, count) {
+  const tag = { normal: "  ", speedrun: "SR", daily: "D " };
+  return runs.slice(0, count).map((r) => {
+    const when = (r.date || "").slice(5, 10);  // MM-DD
+    const win = r.mode === "speedrun" && r.finished ? " WIN" : "";
+    return `  ${when} ${tag[r.mode] || "  "} Floor ${String(r.depth_reached).padStart(3)}` +
+           `  Lv ${String(r.level).padEnd(2)}${win}`;
+  });
+}
+
+function startDaily() {
+  const d = getDailyToday();
+  if (!d || dailyPlayedToday()) return;
+  localStorage.setItem(LS_DAILY, JSON.stringify({ date: d.date, played: true, depth: null }));
+  applySnapshot(JSON.parse(bridge.new_game(d.seed, "normal")));
+  liveRun = true;
+  startRunTimer();
+  mode = "play";
+  showScreen("play-screen");
+  persistSave();
+  updateMusic();
+}
+
+function isDailyRun() {
+  const d = getDailyToday();
+  return !!(snap && d && snap.run_mode === "normal" && Number(snap.seed) === Number(d.seed));
+}
+
+function refreshDailyButton() {
+  const btn = $("btn-daily");
+  if (!btn) return;
+  const played = dailyPlayedToday();
+  btn.disabled = played;
+  const st = loadDaily();
+  const label = btn.querySelector(".label");
+  if (label) {
+    label.textContent = played
+      ? `Daily done — Floor ${st.depth != null ? st.depth : "?"}`
+      : "Daily Challenge";
+  }
+}
+
+function setTitleScoreView(view) {
+  titleScoreView = view;
+  const top = $("score-view-top"), recent = $("score-view-recent");
+  if (top) top.classList.toggle("active", view === "top");
+  if (recent) recent.classList.toggle("active", view === "recent");
+  renderTitleScores();
+}
+
+function renderTitleScores() {
+  if (titleScoreView === "recent") {
+    const runs = loadHistory();
+    $("title-highscores").textContent = runs.length
+      ? "Recent runs:\n" + historyLines(runs, 10).join("\n")
+      : "No runs yet - descend and see how far you get.";
+    $("title-speedrun-scores").textContent = "";
+  } else {
+    renderTitleHighscores();
+  }
+}
+
 function seedInputValue() {
   const text = $("seed-input").value.trim();
   return text === "" ? null : text;
@@ -816,6 +917,7 @@ function gameOver() {
     `Cause of death: ${cause}\n\nDepth reached: ${snap.depth}\nLevel: ${p.level}\n` +
     `Gold collected: ${p.gold}\nMonsters slain: ${p.kills}\nTurns survived: ${p.turns}\n` +
     `Time: ${fmtTime(finalElapsed())}\nSeed: ${snap.seed}`;
+  const daily = isDailyRun();
   if (snap.run_mode === "speedrun") {
     const runs = recordSpeedrunRun();
     $("gameover-highscores").textContent =
@@ -829,10 +931,20 @@ function gameOver() {
     });
     runs.sort((a, b) => (b.depth_reached - a.depth_reached) || (b.gold - a.gold));
     localStorage.setItem(LS_SCORES, JSON.stringify(runs.slice(0, 10)));
-    $("gameover-highscores").textContent = "High Scores:\n" +
+    const heading = daily ? "Daily Challenge — done!" : "High Scores:";
+    $("gameover-highscores").textContent = heading + "\n" +
       runs.slice(0, 5).map((r) =>
         `  Floor ${String(r.depth_reached).padStart(3)}  Lv ${String(r.level).padEnd(3)} Gold ${r.gold}`).join("\n");
   }
+  if (daily) {  // stamp today's daily result for the title-menu status line
+    const st = loadDaily();
+    localStorage.setItem(LS_DAILY, JSON.stringify({ ...st, played: true, depth: snap.depth }));
+  }
+  recordHistory({
+    date: new Date().toISOString(), mode: daily ? "daily" : snap.run_mode,
+    depth_reached: snap.depth, level: p.level, gold: p.gold, kills: p.kills,
+    turns: p.turns, cause, seed: snap.seed, finished: false,
+  });
   localStorage.removeItem(LS_SAVE);
   setReplayButtonsVisible("gameover");
   showScreen("gameover-screen");
@@ -850,6 +962,11 @@ function victory() {
   const runs = recordSpeedrunRun();
   $("victory-scores").textContent =
     "Speedrun Leaderboard:\n" + speedrunScoreLines(runs, 5).join("\n");
+  recordHistory({
+    date: new Date().toISOString(), mode: "speedrun", depth_reached: snap.depth,
+    level: p.level, gold: p.gold, kills: p.kills, turns: p.turns,
+    cause: "Escaped the depths.", seed: snap.seed, finished: true,
+  });
   localStorage.removeItem(LS_SAVE);
   setReplayButtonsVisible("victory");
   showScreen("victory-screen");
@@ -1678,6 +1795,7 @@ document.addEventListener("keydown", (e) => {
     case "title":
       if (e.key === "n" || e.key === "N" || e.key === "Enter") startNewGame();
       else if (e.key === "r" || e.key === "R") startSpeedrun();
+      else if (e.key === "d" || e.key === "D") startDaily();
       else if ((e.key === "c" || e.key === "C") && !$("btn-continue").disabled) continueGame();
       else if (e.key === "v" || e.key === "V") openReplayPicker();
       else if (e.key === "l" || e.key === "L") showLore(false);
@@ -2120,6 +2238,9 @@ $("btn-continue").addEventListener("click", continueGame);
 $("btn-title").addEventListener("click", toTitle);
 $("btn-lore").addEventListener("click", () => showLore(false));
 $("btn-help").addEventListener("click", openGuide);
+$("btn-daily").addEventListener("click", startDaily);
+$("score-view-top").addEventListener("click", () => setTitleScoreView("top"));
+$("score-view-recent").addEventListener("click", () => setTitleScoreView("recent"));
 $("lore-next").addEventListener("click", () => loreStep(1));
 $("lore-back").addEventListener("click", () => loreStep(-1));
 $("btn-speedrun").addEventListener("click", startSpeedrun);

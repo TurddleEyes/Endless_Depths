@@ -1,17 +1,32 @@
 """JSON persistence: single-slot autosave and a high-score history file."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 from . import constants as C
+
+
+def daily_seed(now=None) -> tuple:
+    """(date_str, seed) for today's daily challenge. UTC date so every player
+    shares the same dungeon on the same calendar day. Uses a portable
+    sha256 of the date (NOT Python's salted hash()) so the desktop app and
+    the web build (which runs this same function under Pyodide) derive the
+    exact same seed. Seed is a positive int in the same range GameState mints."""
+    dt = now or datetime.now(timezone.utc)
+    date_str = dt.strftime("%Y-%m-%d")
+    digest = hashlib.sha256(date_str.encode("utf-8")).hexdigest()
+    return date_str, (int(digest[:8], 16) % (2 ** 31 - 1)) or 1
 
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAVE_PATH = os.path.join(_BASE_DIR, C.SAVE_FILE)
 HIGHSCORE_PATH = os.path.join(_BASE_DIR, C.HIGHSCORE_FILE)
 SPEEDRUN_SCORE_PATH = os.path.join(_BASE_DIR, C.SPEEDRUN_SCORE_FILE)
 SETTINGS_PATH = os.path.join(_BASE_DIR, "settings.json")
+DAILY_PATH = os.path.join(_BASE_DIR, C.DAILY_FILE)
+RUN_HISTORY_PATH = os.path.join(_BASE_DIR, C.RUN_HISTORY_FILE)
 
 
 def load_settings() -> dict:
@@ -103,6 +118,52 @@ def record_speedrun_run(state, elapsed_seconds: float) -> list:
     runs = runs[:C.MAX_SPEEDRUN_SCORES]
     try:
         with open(SPEEDRUN_SCORE_PATH, "w", encoding="utf-8") as f:
+            json.dump({"runs": runs}, f, indent=2)
+    except OSError:
+        pass
+    return runs
+
+
+def load_daily() -> dict:
+    try:
+        with open(DAILY_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def save_daily(data: dict) -> None:
+    try:
+        with open(DAILY_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except OSError:
+        pass
+
+
+def daily_played_today() -> bool:
+    """True once today's daily has been started (one attempt per day)."""
+    date_str, _ = daily_seed()
+    st = load_daily()
+    return st.get("date") == date_str and bool(st.get("played"))
+
+
+def load_run_history() -> list:
+    try:
+        with open(RUN_HISTORY_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("runs", [])
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def record_run_history(entry: dict) -> list:
+    """Append one finished run (any mode) to the rolling history, newest first."""
+    runs = load_run_history()
+    runs.insert(0, entry)
+    runs = runs[:C.MAX_RUN_HISTORY]
+    try:
+        with open(RUN_HISTORY_PATH, "w", encoding="utf-8") as f:
             json.dump({"runs": runs}, f, indent=2)
     except OSError:
         pass

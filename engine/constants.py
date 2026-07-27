@@ -118,3 +118,8 @@ MAX_HIGHSCORES = 10
 SPEEDRUN_TARGET_FLOOR = 100
 SPEEDRUN_SCORE_FILE = "speedrun_scores.json"
 MAX_SPEEDRUN_SCORES = 10
+
+# --- Daily challenge + run history ----------------------------------------
+DAILY_FILE = "daily.json"          # one-attempt-per-day lock + today's result
+RUN_HISTORY_FILE = "run_history.json"  # rolling last-N runs of any mode
+MAX_RUN_HISTORY = 20

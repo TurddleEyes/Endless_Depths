@@ -9,6 +9,9 @@ assets/
 save.json
 settings.json
 highscores.json
+speedrun_scores.json
+daily.json
+run_history.json
 
 # itch.io packaging output (scripts/build_itch_zip.sh) - zip + staging dir
 /dist/

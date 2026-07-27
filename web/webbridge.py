@@ -14,6 +14,7 @@ from engine import constants as C
 from engine.world import GameState
 from engine import puzzles as puzzle_module
 from engine import replay as replay_module
+from engine.save import daily_seed as _daily_seed
 from ui import spritedata as S
 from ui.iteminfo import CATEGORY_LABELS, RARITY_COLORS, describe_item, sell_price, sort_items
 from ui import audio as audio_synth
@@ -76,6 +77,13 @@ def synth_wav_b64(name: str) -> str:
 # ----------------------------------------------------------------------
 # Game lifecycle
 # ----------------------------------------------------------------------
+def daily_seed_json() -> str:
+    """Today's daily-challenge (date, seed). Same engine helper the desktop
+    uses, so both front-ends and every player get the same dungeon per day."""
+    date_str, seed = _daily_seed()
+    return json.dumps({"date": date_str, "seed": seed})
+
+
 def new_game(seed=None, mode="normal") -> str:
     global STATE, REPLAY, _last_floor_depth
     seed = int(seed) if seed not in (None, "") else None

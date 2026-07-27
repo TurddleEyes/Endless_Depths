@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Endless Depths</title>
-<link rel="stylesheet" href="web/style.css?v=17">
+<link rel="stylesheet" href="web/style.css?v=18">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128481;</text></svg>">
 </head>
 <body>
@@ -32,11 +32,16 @@
         </div>
         <button id="btn-new" class="menu-btn primary" data-icon="sword"><span class="label">New Game</span><kbd>N</kbd></button>
         <button id="btn-speedrun" class="menu-btn" data-icon="hourglass"><span class="label">Speedrun to Floor 100</span><kbd>R</kbd></button>
+        <button id="btn-daily" class="menu-btn" data-icon="hourglass"><span class="label">Daily Challenge</span><kbd>D</kbd></button>
         <button id="btn-continue" class="menu-btn" data-icon="ghost" disabled><span class="label">Continue</span><kbd>C</kbd></button>
         <button id="btn-watch" class="menu-btn" data-icon="play"><span class="label">Watch Replay</span><kbd>V</kbd></button>
         <button id="btn-lore" class="menu-btn" data-icon="book"><span class="label">Lore</span><kbd>L</kbd></button>
         <button id="btn-help" class="menu-btn" data-icon="book"><span class="label">How to Play</span><kbd>H</kbd></button>
         <button id="btn-settings" class="menu-btn" data-icon="gear"><span class="label">Settings</span><kbd>O</kbd></button>
+      </div>
+      <div id="score-toggle">
+        <button id="score-view-top" class="score-tab active">Top</button>
+        <button id="score-view-recent" class="score-tab">Recent</button>
       </div>
       <div id="title-scores-row">
         <pre id="title-highscores"></pre>
@@ -230,6 +235,6 @@
 </div>
 </div>
 <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
-<script src="web/main.js?v=17"></script>
+<script src="web/main.js?v=18"></script>
 </body>
 </html>

@@ -12,6 +12,7 @@ import json
 import os
 import time
 import tkinter as tk
+from datetime import datetime
 
 from engine import bosses as boss_module
 from engine import constants as C
@@ -235,6 +236,11 @@ class App(tk.Tk):
                                    **btn_style)
         canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=speedrun_btn)
         y += 48
+        self.daily_button = tk.Button(self.title_frame, text="Daily Challenge (D)",
+                                        image=icon["hourglass"], command=self._start_daily,
+                                        **btn_style)
+        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=self.daily_button)
+        y += 48
         self.continue_button = tk.Button(self.title_frame, text="Continue (C)",
                                            image=icon["ghost"], command=self._continue_game,
                                            **btn_style)
@@ -268,6 +274,22 @@ class App(tk.Tk):
                    width=10, **quit_style).pack(side="left", padx=4)
         canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=bottom_row)
         y += 48
+
+        toggle_row = tk.Frame(self.title_frame, bg=T.BG)
+        tab_style = dict(font=T.UI_FONT, bg=T.PANEL_BG, fg=T.TEXT_DIM, relief="flat",
+                          bd=0, padx=16, pady=2, highlightthickness=1,
+                          highlightbackground=T.PANEL_BORDER)
+        self._title_score_view = "top"
+        self.score_top_tab = tk.Button(toggle_row, text="Top",
+                                         command=lambda: self._set_title_score_view("top"),
+                                         **tab_style)
+        self.score_top_tab.pack(side="left", padx=3)
+        self.score_recent_tab = tk.Button(toggle_row, text="Recent",
+                                            command=lambda: self._set_title_score_view("recent"),
+                                            **tab_style)
+        self.score_recent_tab.pack(side="left", padx=3)
+        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=toggle_row)
+        y += 30
 
         scores_row = tk.Frame(self.title_frame, bg=T.BG)
         self.highscore_label = tk.Label(scores_row, text="", font=T.UI_FONT,
@@ -865,6 +887,47 @@ class App(tk.Tk):
         self.mode = "title"
         has_save = save_module.has_save()
         self.continue_button.configure(state="normal" if has_save else "disabled")
+        self._refresh_daily_button()
+        self._set_title_score_view(self._title_score_view)
+        self.title_status_label.configure(text="")
+        self.title_frame.pack(expand=True)
+        self.audio.play_music("depths")
+
+    def _refresh_daily_button(self):
+        played = save_module.daily_played_today()
+        self.daily_button.configure(state="disabled" if played else "normal")
+        if played:
+            st = save_module.load_daily()
+            depth = st.get("depth")
+            self.daily_button.configure(
+                text=f"Daily done - Floor {depth if depth is not None else '?'}")
+        else:
+            self.daily_button.configure(text="Daily Challenge (D)")
+
+    def _set_title_score_view(self, view: str):
+        self._title_score_view = view
+        for tab, name in ((self.score_top_tab, "top"), (self.score_recent_tab, "recent")):
+            on = view == name
+            tab.configure(bg=T.SELECT_BG if on else T.PANEL_BG,
+                           fg=T.SELECT_FG if on else T.TEXT_DIM)
+        self._render_title_scores()
+
+    def _render_title_scores(self):
+        if self._title_score_view == "recent":
+            runs = save_module.load_run_history()
+            tag = {"normal": "  ", "speedrun": "SR", "daily": "D "}
+            if runs:
+                lines = ["Recent runs:"]
+                for r in runs[:10]:
+                    when = (r.get("date") or "")[5:10]
+                    win = " WIN" if r.get("mode") == "speedrun" and r.get("finished") else ""
+                    lines.append(f"  {when} {tag.get(r.get('mode'), '  ')} "
+                                  f"Floor {r.get('depth_reached', 0):>3}  Lv {r.get('level', 1):<2}{win}")
+                self.highscore_label.configure(text="\n".join(lines))
+            else:
+                self.highscore_label.configure(text="No runs yet - descend and see how far you get.")
+            self.speedrun_score_label.configure(text="")
+            return
         runs = save_module.load_highscores()
         if runs:
             lines = ["Top runs:"]
@@ -874,7 +937,6 @@ class App(tk.Tk):
             self.highscore_label.configure(text="\n".join(lines))
         else:
             self.highscore_label.configure(text="No runs recorded yet - descend and see how far you get.")
-
         speedruns = save_module.load_speedrun_scores()
         if speedruns:
             lines = [f"Speedrun (goal: floor {C.SPEEDRUN_TARGET_FLOOR}):"]
@@ -885,10 +947,6 @@ class App(tk.Tk):
         else:
             self.speedrun_score_label.configure(
                 text=f"Speedrun: race to floor {C.SPEEDRUN_TARGET_FLOOR}.\nNo attempts yet.")
-
-        self.title_status_label.configure(text="")
-        self.title_frame.pack(expand=True)
-        self.audio.play_music("depths")
 
     def _read_seed_input(self):
         """Returns (ok, seed_or_None) from the title-screen seed field."""
@@ -907,10 +965,25 @@ class App(tk.Tk):
     def _start_speedrun(self):
         self._begin_run("speedrun")
 
-    def _begin_run(self, mode: str):
-        ok, seed = self._read_seed_input()
-        if not ok:
+    def _start_daily(self):
+        if save_module.daily_played_today():
             return
+        date_str, seed = save_module.daily_seed()
+        save_module.save_daily({"date": date_str, "played": True, "depth": None})
+        self._begin_run("normal", seed=seed)
+        self._refresh_daily_button()
+
+    def _is_daily_run(self) -> bool:
+        if self.state is None or self.state.mode != "normal":
+            return False
+        _, seed = save_module.daily_seed()
+        return self.state.seed == seed
+
+    def _begin_run(self, mode: str, seed=None):
+        if seed is None:
+            ok, seed = self._read_seed_input()
+            if not ok:
+                return
         self.state = GameState(seed=seed, mode=mode)
         self.state.new_game()
         self.state.take_events()  # discard setup events
@@ -957,6 +1030,7 @@ class App(tk.Tk):
                   f"Time: {_fmt_time(self._final_elapsed())}\n"
                   f"Seed: {self.state.seed}")
         )
+        is_daily = self._is_daily_run()
         if self.state.mode == "speedrun":
             runs = save_module.record_speedrun_run(self.state, self._final_elapsed())
             lines = ["Speedrun Leaderboard:"]
@@ -965,9 +1039,19 @@ class App(tk.Tk):
                 lines.append(f"  {mark} {_fmt_time(r['elapsed_seconds']):>8}")
         else:
             runs = save_module.record_run(self.state, cause)
-            lines = ["High Scores:"]
+            lines = ["Daily Challenge - done!" if is_daily else "High Scores:"]
             for r in runs[:5]:
                 lines.append(f"  Floor {r['depth_reached']:>3}  Lv {r['level']:<3} Gold {r['gold']:<5}")
+        if is_daily:
+            date_str, _ = save_module.daily_seed()
+            save_module.save_daily({"date": date_str, "played": True, "depth": self.state.depth})
+        save_module.record_run_history({
+            "date": datetime.now().isoformat(timespec="seconds"),
+            "mode": "daily" if is_daily else self.state.mode,
+            "depth_reached": self.state.depth, "level": p.level, "gold": p.gold,
+            "kills": p.kills, "turns": p.turns, "cause": cause, "seed": self.state.seed,
+            "finished": False,
+        })
         save_module.delete_save()
         self.gameover_highscores_label.configure(text="\n".join(lines))
         self._set_replay_buttons_visible(self.gameover_replay_row, self.gameover_replay_status)
@@ -988,6 +1072,12 @@ class App(tk.Tk):
                   f"Seed: {self.state.seed}")
         )
         runs = save_module.record_speedrun_run(self.state, elapsed)
+        save_module.record_run_history({
+            "date": datetime.now().isoformat(timespec="seconds"), "mode": "speedrun",
+            "depth_reached": self.state.depth, "level": p.level, "gold": p.gold,
+            "kills": p.kills, "turns": p.turns, "cause": "Escaped the depths.",
+            "seed": self.state.seed, "finished": True,
+        })
         save_module.delete_save()
         lines = ["Speedrun Leaderboard:"]
         for r in runs[:5]:
@@ -1233,6 +1323,8 @@ class App(tk.Tk):
                 self._start_new_game()
             elif event.keysym in ("r", "R"):
                 self._start_speedrun()
+            elif event.keysym in ("d", "D") and str(self.daily_button["state"]) == "normal":
+                self._start_daily()
             elif event.keysym in ("c", "C") and str(self.continue_button["state"]) == "normal":
                 self._continue_game()
             elif event.keysym in ("v", "V"):
