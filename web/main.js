@@ -1086,12 +1086,9 @@ function refreshDailyButton() {
   const played = dailyPlayedToday();
   btn.disabled = played;
   const st = loadDaily();
-  const label = btn.querySelector(".label");
-  if (label) {
-    label.textContent = played
-      ? `Daily done — Floor ${st.depth != null ? st.depth : "?"}`
-      : "Daily Challenge";
-  }
+  btn.title = played
+    ? `Daily done — reached Floor ${st.depth != null ? st.depth : "?"}. Come back tomorrow.`
+    : "Daily Challenge (D)";
 }
 
 function setTitleScoreView(view) {

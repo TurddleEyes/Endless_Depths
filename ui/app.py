@@ -238,57 +238,56 @@ class App(tk.Tk):
                                    **primary_style)
         canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=new_game_btn)
         y += 48
-        speedrun_btn = tk.Button(self.title_frame, text="Speedrun to Floor 100 (R)",
-                                   image=icon["hourglass"], command=self._start_speedrun,
-                                   **btn_style)
-        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=speedrun_btn)
-        y += 48
-        self.daily_button = tk.Button(self.title_frame, text="Daily Challenge (D)",
-                                        image=icon["hourglass"], command=self._start_daily,
-                                        **btn_style)
-        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=self.daily_button)
-        y += 48
         self.continue_button = tk.Button(self.title_frame, text="Continue (C)",
                                            image=icon["ghost"], command=self._continue_game,
                                            **btn_style)
         canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=self.continue_button)
         y += 48
-        watch_btn = tk.Button(self.title_frame, text="Watch Replay (V)",
-                                image=icon["play"], command=self._open_replay_picker,
-                                **btn_style)
-        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=watch_btn)
-        y += 48
-        lore_btn = tk.Button(self.title_frame, text="Lore (L)", image=icon["book"],
-                               command=lambda: self._show_lore(first_time=False),
-                               **btn_style)
-        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=lore_btn)
-        y += 48
-        help_btn = tk.Button(self.title_frame, text="How to Play (H)", image=icon["book"],
-                               command=self._open_guide, **btn_style)
-        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=help_btn)
-        y += 48
-        bestiary_btn = tk.Button(self.title_frame, text="Bestiary (B)", image=icon["book"],
-                                   command=self._show_bestiary, **btn_style)
-        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=bestiary_btn)
-        y += 48
-        achievements_btn = tk.Button(self.title_frame, text="Achievements (A)", image=icon["book"],
-                                       command=self._show_achievements, **btn_style)
-        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=achievements_btn)
-        y += 48
 
-        bottom_row = tk.Frame(self.title_frame, bg=T.BG)
-        half_style = dict(btn_style, width=150)  # still pixels: has an icon
-        tk.Button(bottom_row, text="Settings (O)", image=icon["gear"],
-                   command=self._open_settings, **half_style).pack(side="left", padx=4)
+        # Run-mode variants (Speedrun/Daily/Watch Replay) - one compact row
+        # instead of three full-width ones. Same icon+text compound style,
+        # just narrower and without the "(key)" suffix (shown as a tooltip-
+        # free abbreviation instead, mirroring the web build's compact row).
+        secondary_style = dict(btn_style, width=150, font=T.UI_FONT)
+        secondary_row = tk.Frame(self.title_frame, bg=T.BG)
+        speedrun_btn = tk.Button(secondary_row, text="Speedrun", image=icon["hourglass"],
+                                   command=self._start_speedrun, **secondary_style)
+        speedrun_btn.pack(side="left", padx=4)
+        self.daily_button = tk.Button(secondary_row, text="Daily", image=icon["hourglass"],
+                                        command=self._start_daily, **secondary_style)
+        self.daily_button.pack(side="left", padx=4)
+        watch_btn = tk.Button(secondary_row, text="Replay", image=icon["play"],
+                                command=self._open_replay_picker, **secondary_style)
+        watch_btn.pack(side="left", padx=4)
+        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=secondary_row)
+        y += 44
+
+        # Everything else (lore/help/reference screens + settings + quit) -
+        # a single row of small icon+text buttons rather than five full-
+        # width rows, again mirroring the web build's compact icon toolbar.
+        icon_row_style = dict(btn_style, width=110, font=T.UI_FONT)
+        icon_row = tk.Frame(self.title_frame, bg=T.BG)
+        tk.Button(icon_row, text="Lore", image=icon["book"],
+                   command=lambda: self._show_lore(first_time=False),
+                   **icon_row_style).pack(side="left", padx=3)
+        tk.Button(icon_row, text="Help", image=icon["book"],
+                   command=self._open_guide, **icon_row_style).pack(side="left", padx=3)
+        tk.Button(icon_row, text="Bestiary", image=icon["book"],
+                   command=self._show_bestiary, **icon_row_style).pack(side="left", padx=3)
+        tk.Button(icon_row, text="Achieve.", image=icon["book"],
+                   command=self._show_achievements, **icon_row_style).pack(side="left", padx=3)
+        tk.Button(icon_row, text="Settings", image=icon["gear"],
+                   command=self._open_settings, **icon_row_style).pack(side="left", padx=3)
         # Quit has no icon, so its width reverts to Tk's normal CHARACTER
-        # units - must not inherit half_style's pixel width or "compound"
-        # with no image, which Tk accepts but renders as extra dead space.
-        quit_style = {k: v for k, v in btn_style.items()
+        # units - must not inherit icon_row_style's pixel width or
+        # "compound" with no image, which Tk accepts but renders as extra
+        # dead space.
+        quit_style = {k: v for k, v in icon_row_style.items()
                       if k not in ("width", "compound", "anchor", "padx")}
-        tk.Button(bottom_row, text="Quit", command=self._on_close,
-                   width=10, **quit_style).pack(side="left", padx=4)
-        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=bottom_row)
-        y += 48
+        tk.Button(icon_row, text="Quit", command=self._on_close,
+                   width=8, **quit_style).pack(side="left", padx=3)
+        canvas.create_window(self.TITLE_W // 2, y, anchor="n", window=icon_row)
+        y += 44
 
         toggle_row = tk.Frame(self.title_frame, bg=T.BG)
         tab_style = dict(font=T.UI_FONT, bg=T.PANEL_BG, fg=T.TEXT_DIM, relief="flat",

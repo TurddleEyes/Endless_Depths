@@ -180,7 +180,9 @@ body.portrait #title-hero { display: none; } /* the archway crops tight in portr
   border-radius: 3px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
-.menu-btn::before {
+.menu-btn::before,
+.menu-btn-sm::before,
+.icon-btn::before {
   content: "";
   flex: 0 0 32px;
   width: 32px;
@@ -190,22 +192,42 @@ body.portrait #title-hero { display: none; } /* the archway crops tight in portr
   image-rendering: pixelated;
   opacity: 0.82;
 }
-.menu-btn[data-icon="sword"]::before     { background-position: 0     0; }
-.menu-btn[data-icon="hourglass"]::before { background-position: -32px 0; }
-.menu-btn[data-icon="ghost"]::before     { background-position: -64px 0; }
-.menu-btn[data-icon="play"]::before      { background-position: -96px 0; }
-.menu-btn[data-icon="book"]::before      { background-position: -128px 0; }
-.menu-btn[data-icon="gear"]::before      { background-position: -160px 0; }
+.menu-btn[data-icon="sword"]::before,
+.menu-btn-sm[data-icon="sword"]::before,
+.icon-btn[data-icon="sword"]::before         { background-position: 0     0; }
+.menu-btn[data-icon="hourglass"]::before,
+.menu-btn-sm[data-icon="hourglass"]::before,
+.icon-btn[data-icon="hourglass"]::before     { background-position: -32px 0; }
+.menu-btn[data-icon="ghost"]::before,
+.menu-btn-sm[data-icon="ghost"]::before,
+.icon-btn[data-icon="ghost"]::before         { background-position: -64px 0; }
+.menu-btn[data-icon="play"]::before,
+.menu-btn-sm[data-icon="play"]::before,
+.icon-btn[data-icon="play"]::before          { background-position: -96px 0; }
+.menu-btn[data-icon="book"]::before,
+.menu-btn-sm[data-icon="book"]::before,
+.icon-btn[data-icon="book"]::before          { background-position: -128px 0; }
+.menu-btn[data-icon="gear"]::before,
+.menu-btn-sm[data-icon="gear"]::before,
+.icon-btn[data-icon="gear"]::before          { background-position: -160px 0; }
 .menu-btn span.label { flex: 1; }
 .menu-btn:hover:not(:disabled),
-.menu-btn:focus-visible {
+.menu-btn:focus-visible,
+.menu-btn-sm:hover:not(:disabled),
+.menu-btn-sm:focus-visible,
+.icon-btn:hover:not(:disabled),
+.icon-btn:focus-visible {
   background: rgba(30, 45, 52, 0.92);
   border-color: var(--accent);
   color: #eaf7fb;
   outline: none;
 }
 .menu-btn:hover:not(:disabled)::before,
-.menu-btn:focus-visible::before { opacity: 1; }
+.menu-btn:focus-visible::before,
+.menu-btn-sm:hover:not(:disabled)::before,
+.menu-btn-sm:focus-visible::before,
+.icon-btn:hover:not(:disabled)::before,
+.icon-btn:focus-visible::before { opacity: 1; }
 .menu-btn.primary {
   background: rgba(26, 60, 92, 0.55);
   border-color: #3d84a8;
@@ -227,8 +249,12 @@ body.portrait #title-hero { display: none; } /* the archway crops tight in portr
     linear-gradient(-45deg, var(--warn) 0 6px, transparent 6px) bottom right / 12px 12px no-repeat;
   opacity: 0.85;
 }
-.menu-btn:disabled { background: rgba(14, 14, 19, 0.6); border-color: #23232b; }
-.menu-btn:disabled::before { opacity: 0.28; }
+.menu-btn:disabled,
+.menu-btn-sm:disabled,
+.icon-btn:disabled { background: rgba(14, 14, 19, 0.6); border-color: #23232b; }
+.menu-btn:disabled::before,
+.menu-btn-sm:disabled::before,
+.icon-btn:disabled::before { opacity: 0.28; }
 .menu-btn kbd {
   font-family: inherit;
   font-size: 0.72em;
@@ -238,6 +264,44 @@ body.portrait #title-hero { display: none; } /* the archway crops tight in portr
   padding: 1px 6px;
 }
 @media (pointer: coarse) { .menu-btn kbd { display: none; } }
+
+/* Secondary run-mode row (Speedrun/Daily/Watch Replay) - three compact,
+ * icon-over-label buttons sharing the width New Game/Continue take alone. */
+#title-secondary-row { display: flex; gap: 8px; width: 100%; margin: 6px 0; }
+.menu-btn-sm {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 8px 4px;
+  background: rgba(16, 16, 22, 0.82);
+  border: 1px solid #35353f;
+  border-radius: 3px;
+}
+.menu-btn-sm::before { flex: 0 0 32px; }
+.menu-btn-sm span.label { font-size: 0.78em; white-space: nowrap; }
+
+/* Icon-only toolbar (Lore/How to Play/Bestiary/Achievements/Settings) -
+ * full names + shortcut keys live in the title/aria-label tooltip instead
+ * of on-button text, so five items fit in one compact row. */
+#title-icon-row { display: flex; gap: 8px; width: 100%; margin: 2px 0 4px; justify-content: center; }
+.icon-btn {
+  flex: 0 0 auto;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(16, 16, 22, 0.82);
+  border: 1px solid #35353f;
+  border-radius: 3px;
+}
 
 /* The things waiting below - framed like specimen cards. */
 #title-monsters { display: flex; gap: 10px; margin: 4px 0 18px; }
