@@ -1506,6 +1506,12 @@ class App(tk.Tk):
             elif et == "poison_tick":
                 self.audio.play("poison_tick")
                 self._add_fx("num", x=p.x, y=p.y, text=str(ev["dmg"]), color="#58c058")
+            elif et == "status_tick":
+                color = "#e05656" if ev.get("status") == "burn" else "#c94a4a"
+                self.audio.play("poison_tick")
+                self._add_fx("num", x=p.x, y=p.y, text=str(ev["dmg"]), color=color)
+            elif et == "status_expired":
+                self._add_fx("num", x=p.x, y=p.y, text=f"{ev.get('status')} fades", color="#9a9a9a")
             elif et == "descend":
                 self.audio.play("stairs")
                 if ev.get("boss_floor"):

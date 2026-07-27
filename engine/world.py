@@ -21,6 +21,7 @@ from .fov import compute_fov
 from .items import generate_item, use_item as apply_item_effect
 from . import puzzles as puzzle_module
 from . import shop as shop_module
+from . import status as status_module
 
 MAX_EVENTS = 200
 
@@ -205,13 +206,11 @@ class GameState:
 
     def _apply_poison(self, dmg: int):
         # Poison never wears off on its own - only a Potion of Cure (or
-        # dying) ends it. Re-poisoning just keeps the strongest dose.
-        for eff in self.player.status_effects:
-            if eff.get("type") == "poison":
-                eff["dmg"] = max(eff["dmg"], dmg)
-                return
-        self.player.status_effects.append({"type": "poison", "dmg": dmg})
-        self._emit("poisoned")
+        # dying) ends it. Re-poisoning just keeps the strongest dose (see
+        # engine/status.py: add_effect handles the merge).
+        is_new = status_module.add_effect(self.player.status_effects, {"type": "poison", "dmg": dmg})
+        if is_new:
+            self._emit("poisoned")
 
     def _set_tile(self, x: int, y: int, tile: str):
         """All mid-floor map mutations go through here so the web renderer
@@ -616,23 +615,36 @@ class GameState:
         self._process_monsters()
 
     def _tick_status_effects(self):
-        for eff in list(self.player.status_effects):
-            if eff.get("type") == "poison":
-                # Ticks every other turn: poison is permanent until cured,
-                # so the drain is slow enough to actually reach a shop.
-                if self.player.turns % 2 == 0:
+        # engine/status.py is pure - it decides what fires/expires, this
+        # method does all the hp-mutation/log/emit, mirroring the
+        # bosses.py/world.py split.
+        for outcome in status_module.tick(self.player.status_effects, self.player.turns):
+            if outcome.kind == "dot":
+                dmg = outcome.dmg
+                if not outcome.can_kill:
+                    # Never lands the killing blow itself - monsters will
+                    # happily finish the job. Permanent-until-cured poison
+                    # would otherwise be a guaranteed death sentence before
+                    # the first shop.
+                    dmg = min(dmg, max(0, self.player.hp - 1))
+                if dmg <= 0:
                     continue
-                # Poison grinds you down to death's door but never lands the
-                # killing blow itself - monsters will happily finish the job.
-                # Permanent-until-cured poison would otherwise be a
-                # guaranteed death sentence before the first shop.
-                if self.player.hp > 1:
-                    dealt = min(eff["dmg"], self.player.hp - 1)
-                    self.player.hp -= dealt
-                    self._log(f"Poison courses through you ({dealt} damage).")
-                    self._emit("poison_tick", dmg=dealt)
+                self.player.hp -= dmg
+                if outcome.type == "poison":
+                    self._log(f"Poison courses through you ({dmg} damage).")
+                    self._emit("poison_tick", dmg=dmg)
                     if self.player.hp == 1:
                         self._log("The poison leaves you clinging to life - find a cure!")
+                else:
+                    verb = "burns" if outcome.type == "burn" else "bleeds"
+                    self._log(f"You take {dmg} {outcome.type} damage as the wound {verb}.")
+                    self._emit("status_tick", status=outcome.type, dmg=dmg)
+                if self.player.hp <= 0:
+                    self._die()
+                    return
+            elif outcome.kind == "expired":
+                self._log(f"The {outcome.type} fades.")
+                self._emit("status_expired", status=outcome.type)
 
     def _process_monsters(self):
         floor = self.floor

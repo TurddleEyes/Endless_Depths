@@ -32,7 +32,7 @@ const PY_FILES = [
   "engine/__init__.py", "engine/bosses.py", "engine/constants.py", "engine/combat.py",
   "engine/dungeon.py", "engine/entities.py", "engine/fov.py",
   "engine/items.py", "engine/puzzles.py", "engine/replay.py", "engine/save.py",
-  "engine/shop.py", "engine/world.py",
+  "engine/shop.py", "engine/status.py", "engine/world.py",
   "ui/__init__.py", "ui/spritedata.py", "ui/iteminfo.py", "ui/audio.py", "ui/lore.py",
 ];
 
@@ -1334,6 +1334,11 @@ function handleEvents(events) {
         if (EVENT_SFX[ev.type]) audio.play(EVENT_SFX[ev.type]);
         if (ev.type === "poisoned") floatNum(snap.player.x, snap.player.y, "poison!", "#58c058");
         if (ev.type === "poison_tick") floatNum(snap.player.x, snap.player.y, String(ev.dmg), "#58c058");
+        if (ev.type === "status_tick") {
+          audio.play("poison_tick");
+          floatNum(snap.player.x, snap.player.y, String(ev.dmg), ev.status === "burn" ? "#e05656" : "#c94a4a");
+        }
+        if (ev.type === "status_expired") floatNum(snap.player.x, snap.player.y, `${ev.status} fades`, "#9a9a9a");
         if (ev.type === "strength") floatNum(snap.player.x, snap.player.y, "+STR", "#e0a83a");
     }
   }

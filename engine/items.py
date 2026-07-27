@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from . import constants as C
+from . import status as status_module
 
 _next_id = [1]
 
@@ -162,7 +163,12 @@ def use_item(player, item: Item) -> str:
             player.base_attack += item.magnitude
             return f"You drink the {item.name} and feel stronger (+{item.magnitude} attack)."
         if item.effect == "cure":
-            player.status_effects.clear()
+            # Cure washes away sicknesses (poison/burn/bleed/slow/freeze),
+            # not the player's own timed buffs - it's a cleanse, not a purge.
+            player.status_effects = [
+                e for e in player.status_effects
+                if e.get("type") not in status_module.AILMENT_TYPES
+            ]
             return f"You drink the {item.name} and feel cleansed."
     if item.category == "scroll":
         if item.effect == "enchant":

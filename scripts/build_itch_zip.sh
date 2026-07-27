@@ -62,6 +62,7 @@ FILES=(
     engine/replay.py
     engine/save.py
     engine/shop.py
+    engine/status.py
     engine/world.py
     ui/__init__.py
     ui/spritedata.py

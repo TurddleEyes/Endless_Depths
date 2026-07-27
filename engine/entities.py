@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from . import constants as C
+from . import status as status_module
 from .items import Item
 
 
@@ -34,7 +35,9 @@ class Player:
         for eq in (self.equipped_weapon, self.equipped_accessory):
             if eq:
                 bonus += eq.bonus_attack
-        return self.base_attack + bonus
+        base = self.base_attack + bonus
+        mult = status_module.stat_mult(self.status_effects, "attack")
+        return max(1, round(base * mult))
 
     @property
     def defense_power(self) -> int:
@@ -42,7 +45,9 @@ class Player:
         for eq in (self.equipped_armor, self.equipped_accessory):
             if eq:
                 bonus += eq.bonus_defense
-        return self.base_defense + bonus
+        base = self.base_defense + bonus
+        mult = status_module.stat_mult(self.status_effects, "defense")
+        return max(1, round(base * mult))
 
     def is_alive(self) -> bool:
         return self.hp > 0

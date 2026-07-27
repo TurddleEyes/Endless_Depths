@@ -669,6 +669,93 @@ def test_poison_status():
     print("OK: poison persists until cured; every shop stocks a cure potion")
 
 
+def test_burn_bleed_status():
+    state = GameState(seed=46)
+    state.new_game()
+    state.player.max_hp = 1000
+    state.player.hp = 1000
+    state.floor.monsters.clear()
+    state.player.status_effects.append({"type": "burn", "dmg": 4})
+    hp_start = state.player.hp
+    for _ in range(3):
+        state.wait()
+    # Default burn duration is 3 turns, ticking every turn (unlike poison's
+    # every-other-turn), then it's gone on its own - no cure needed.
+    assert state.player.hp == hp_start - 3 * 4, f"burn should tick every turn, hp={state.player.hp}"
+    assert not any(e.get("type") == "burn" for e in state.player.status_effects), \
+        "burn must expire on its own after its default duration"
+
+    # Unlike poison, burn/bleed CAN land the killing blow.
+    state2 = GameState(seed=47)
+    state2.new_game()
+    state2.floor.monsters.clear()
+    state2.player.hp = 3
+    state2.player.status_effects.append({"type": "bleed", "dmg": 5})
+    state2.wait()
+    assert state2.player.hp <= 0 and state2.game_over, "bleed must be able to kill, unlike poison"
+    print("OK: burn/bleed tick every turn, expire on schedule, and can kill")
+
+
+def test_freeze_slow_status():
+    from engine import status as status_module
+
+    effects = [{"type": "freeze"}]
+    assert status_module.is_incapacitated(effects, 5), "freeze blocks every turn"
+    status_module.tick(effects, 5)
+    assert effects[0]["turns_left"] == 1, "default freeze duration is 2 turns"
+    outcomes = status_module.tick(effects, 6)
+    assert any(o.kind == "expired" and o.type == "freeze" for o in outcomes)
+    assert effects == [], "freeze should remove itself once expired"
+
+    effects = [{"type": "slow"}]
+    assert status_module.is_incapacitated(effects, 2), "slow blocks on even turns"
+    assert not status_module.is_incapacitated(effects, 3), "slow allows odd turns"
+    print("OK: freeze blocks every turn, slow gates on alternating turns, both expire on schedule")
+
+
+def test_timed_buff_status():
+    state = GameState(seed=48)
+    state.new_game()
+    state.floor.monsters.clear()
+    base_atk = state.player.attack_power
+    state.player.status_effects.append({"type": "buff_attack", "mult": 1.5})
+    assert state.player.attack_power == max(1, round(base_atk * 1.5)), \
+        "an active attack buff should scale attack_power"
+    for _ in range(4):
+        state.wait()
+    assert not any(e.get("type") == "buff_attack" for e in state.player.status_effects), \
+        "default buff duration is 4 turns"
+    assert state.player.attack_power == base_atk, "attack_power should fall back once the buff expires"
+    print("OK: timed attack buff scales attack_power and expires on schedule")
+
+
+def test_cure_keeps_buffs():
+    from engine.items import make_cure_potion
+
+    state = GameState(seed=49)
+    state.new_game()
+    state.player.status_effects.append({"type": "poison", "dmg": 3})
+    state.player.status_effects.append({"type": "buff_attack", "mult": 1.4})
+    cure = make_cure_potion(1)
+    state.player.inventory.append(cure)
+    state.use_item(cure)
+    types = {e.get("type") for e in state.player.status_effects}
+    assert "poison" not in types, "cure must wash away poison"
+    assert "buff_attack" in types, "cure must not strip the player's own timed buffs"
+    print("OK: cure potion clears ailments but leaves timed buffs intact")
+
+
+def test_status_effects_survive_save_load():
+    from engine.entities import Player
+
+    p = Player()
+    p.status_effects.append({"type": "burn", "dmg": 4, "turns_left": 2})
+    p.status_effects.append({"type": "buff_defense", "mult": 1.25, "turns_left": 3})
+    restored = Player.from_dict(json.loads(json.dumps(p.to_dict())))
+    assert restored.status_effects == p.status_effects, "status effects must round-trip through JSON exactly"
+    print("OK: status effects round-trip through save/load JSON exactly")
+
+
 def test_fireball_scroll():
     from engine.items import Item
     from engine.entities import generate_monster
@@ -854,6 +941,7 @@ def _state_fingerprint(state):
         "kills": state.player.kills,
         "pos": (state.player.x, state.player.y),
         "inventory": [item_key(i) for i in state.player.inventory],
+        "status_effects": json.dumps(state.player.status_effects, sort_keys=True),
         "tiles": ["".join(r) for r in state.floor.tiles],
         # boss_state (phase, cooldowns, pending ability, buffs) is plain
         # JSON-able data - fold it in as a sorted-key string so two
@@ -1197,6 +1285,11 @@ if __name__ == "__main__":
     test_shop_prices_scale_with_depth()
     test_traps()
     test_poison_status()
+    test_burn_bleed_status()
+    test_freeze_slow_status()
+    test_timed_buff_status()
+    test_cure_keeps_buffs()
+    test_status_effects_survive_save_load()
     test_fireball_scroll()
     test_wait_and_events()
     test_puzzle_solvability_sweep()
