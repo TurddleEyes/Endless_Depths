@@ -564,8 +564,11 @@ function drawTitleHero() {
 }
 
 /* --------------------------------------------------------------- audio */
+const AUDIO_POOL_SIZE = 4;  // per sound name - enough for rapid overlapping hits
+
 const audio = {
   cache: {},
+  pools: {},  // name -> HTMLAudioElement[], reused round-robin instead of cloning fresh every play()
   musicEl: null,
   currentTrack: null,
   ready: false,
@@ -601,7 +604,19 @@ const audio = {
     if (!gameSettings.sfx_on) return;
     const el = this.synth(name);
     if (!el) return;
-    const inst = el.cloneNode();
+    // A brand-new HTMLAudioElement per play() (the old cloneNode()-every-
+    // time approach) meant walking - which fires a "step" sound on every
+    // plain move and nothing else - constructed and discarded one forever,
+    // a real source of browser audio-pipeline/GC hitching. Reuse a small
+    // pool instead; still supports overlapping playback (rapid hits) up to
+    // the pool cap, just without unbounded element churn.
+    const pool = this.pools[name] || (this.pools[name] = []);
+    let inst = pool.find((a) => a.paused);
+    if (!inst) {
+      inst = el.cloneNode();
+      if (pool.length < AUDIO_POOL_SIZE) pool.push(inst);
+    }
+    inst.currentTime = 0;
     inst.volume = 0.7;
     inst.play().catch(() => {});
   },
@@ -1759,24 +1774,45 @@ function renderLog() {
   $("log").scrollTop = $("log").scrollHeight;
 }
 
+// The terrain layer only changes when a tile newly becomes explored (or the
+// floor changes) - which is rare compared to how often render() runs (every
+// single move). Cache it to an offscreen canvas and skip the full 60x32
+// fillRect loop entirely when nothing new was revealed; only the player
+// marker (one cheap fillRect) needs to be redrawn every frame regardless.
+let minimapCache = null;
+let minimapCacheDepth = null;
+let minimapCacheExplored = null;
+
 function renderMinimap() {
   const scale = Math.max(1, Math.min(Math.floor(minimap.width / floorData.width),
                                      Math.floor(minimap.height / floorData.height)));
   const ox = Math.floor((minimap.width - floorData.width * scale) / 2);
   const oy = Math.floor((minimap.height - floorData.height * scale) / 2);
-  mmCtx.fillStyle = "#111114";
-  mmCtx.fillRect(0, 0, minimap.width, minimap.height);
-  for (let y = 0; y < floorData.height; y++) {
-    for (let x = 0; x < floorData.width; x++) {
-      if (snap.explored[y][x] !== "1") continue;
-      const tile = floorData.tiles[y][x];
-      mmCtx.fillStyle = tile === "#" ? "#2a2a33" : tile === ">" ? "#66d9ef"
-        : tile === "$" || tile === "&" ? "#f2c94c" : tile === "+" ? "#e0a83a"
-        : tile === "=" ? "#ff3b3b"
-        : tile === "L" || tile === "B" ? "#5a5a68" : "#4a4a58";
-      mmCtx.fillRect(ox + x * scale, oy + y * scale, scale, scale);
+  const exploredKey = snap.explored.join("");
+  if (!minimapCache || minimapCacheDepth !== floorData.depth || minimapCacheExplored !== exploredKey) {
+    if (!minimapCache) {
+      minimapCache = document.createElement("canvas");
+      minimapCache.width = minimap.width;
+      minimapCache.height = minimap.height;
     }
+    const g = minimapCache.getContext("2d");
+    g.fillStyle = "#111114";
+    g.fillRect(0, 0, minimap.width, minimap.height);
+    for (let y = 0; y < floorData.height; y++) {
+      for (let x = 0; x < floorData.width; x++) {
+        if (snap.explored[y][x] !== "1") continue;
+        const tile = floorData.tiles[y][x];
+        g.fillStyle = tile === "#" ? "#2a2a33" : tile === ">" ? "#66d9ef"
+          : tile === "$" || tile === "&" ? "#f2c94c" : tile === "+" ? "#e0a83a"
+          : tile === "=" ? "#ff3b3b"
+          : tile === "L" || tile === "B" ? "#5a5a68" : "#4a4a58";
+        g.fillRect(ox + x * scale, oy + y * scale, scale, scale);
+      }
+    }
+    minimapCacheDepth = floorData.depth;
+    minimapCacheExplored = exploredKey;
   }
+  mmCtx.drawImage(minimapCache, 0, 0);
   mmCtx.fillStyle = "#ffe45e";
   mmCtx.fillRect(ox + snap.player.x * scale - 1, oy + snap.player.y * scale - 1, scale + 2, scale + 2);
 }
@@ -1787,11 +1823,22 @@ function escapeHtml(s) {
 
 /* ------------------------------------------------- inventory overlay */
 let invSel = 0;
+// Fetched on demand (only while the inventory/shop overlay is open or just
+// changed) rather than on every move/wait snapshot - see webbridge.py
+// inventory_json()/shop_json().
+let invItems = [];
+let shopItems = [];
+
+function refreshItemLists() {
+  invItems = JSON.parse(bridge.inventory_json());
+  shopItems = JSON.parse(bridge.shop_json());
+}
 
 function openInventory() {
   stopAutoWalk();
   mode = "inventory";
   invSel = 0;
+  refreshItemLists();
   $("inventory-overlay").classList.remove("hidden");
   renderInventory();
   audio.play("menu");
@@ -1804,7 +1851,7 @@ function closeInventory() {
 }
 
 function renderInventory() {
-  const items = snap.inventory;
+  const items = invItems;
   invSel = Math.max(0, Math.min(invSel, items.length - 1));
   $("inv-gold").textContent = `Gold: ${snap.player.gold}`;
   const p = snap.player;
@@ -1818,21 +1865,21 @@ function renderInventory() {
 }
 
 function inventoryActivate() {
-  const entry = snap.inventory[invSel];
+  const entry = invItems[invSel];
   if (!entry) return;
   if (entry.category === "potion" || entry.category === "scroll") {
     afterAction(bridge.use_item(entry.id));
   } else if (["weapon", "armor", "accessory"].includes(entry.category)) {
     afterAction(bridge.equip_item(entry.id));
   }
-  if (mode === "inventory") renderInventory();
+  if (mode === "inventory") { refreshItemLists(); renderInventory(); }
 }
 
 function inventoryDrop() {
-  const entry = snap.inventory[invSel];
+  const entry = invItems[invSel];
   if (!entry) return;
   afterAction(bridge.drop_item(entry.id));
-  if (mode === "inventory") renderInventory();
+  if (mode === "inventory") { refreshItemLists(); renderInventory(); }
 }
 
 /* ------------------------------------------------------ shop overlay */
@@ -1843,6 +1890,7 @@ function openShop() {
   mode = "shop";
   shopTab = "buy";
   shopSel = 0;
+  refreshItemLists();
   $("shop-overlay").classList.remove("hidden");
   renderShop();
   audio.play("shop_bell");
@@ -1863,7 +1911,7 @@ function shopSetTab(tab) {
 }
 
 function shopEntries() {
-  return shopTab === "buy" ? snap.shop_stock : snap.inventory;
+  return shopTab === "buy" ? shopItems : invItems;
 }
 
 function renderShop() {
@@ -1896,7 +1944,7 @@ function shopActivate() {
   const entry = shopEntries()[shopSel];
   if (!entry) return;
   afterAction(shopTab === "buy" ? bridge.buy_item(entry.id) : bridge.sell_item(entry.id));
-  if (mode === "shop" || snap.shop_open) renderShop();
+  if (mode === "shop" || snap.shop_open) { refreshItemLists(); renderShop(); }
 }
 
 /* ------------------------------------------------ shared list helpers */
@@ -2024,6 +2072,13 @@ document.addEventListener("keydown", (e) => {
         stopAutoWalk();
         afterAction(bridge.wait_turn());
       } else if (MOVE_KEYS[e.key]) {
+        if (e.repeat) {
+          const now = performance.now();
+          if (now - lastKeyMoveAt < KEY_REPEAT_MS) break;
+          lastKeyMoveAt = now;
+        } else {
+          lastKeyMoveAt = performance.now();
+        }
         stopAutoWalk();
         const [dx, dy] = MOVE_KEYS[e.key];
         noteFacing(dx, dy);
@@ -2068,6 +2123,13 @@ const DIRS4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const WALKABLE_TILES = new Set([".", ">", "_"]);
 const BUMPABLE_TILES = new Set(["$", "+", "=", "&", "L", "B"]); // mirror SOLID_TILES
 const AUTO_STEP_MS = 150;
+// Tap/drag/D-pad/gamepad all self-throttle to ~150-170ms between moves;
+// held-key OS auto-repeat was the one input path with no cap at all, able
+// to re-enter the full move pipeline faster than the engine/render loop
+// can keep up. KeyboardEvent.repeat lets the FIRST press stay instant
+// (unchanged feel) while gating only the OS-repeated events that follow.
+const KEY_REPEAT_MS = 150;
+let lastKeyMoveAt = 0;
 // Anything that should snap the player out of an auto-walk. poison_tick is
 // deliberately absent: permanent poison would otherwise cancel every other
 // step, and its damage can never be lethal.

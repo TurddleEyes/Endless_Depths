@@ -257,13 +257,17 @@ def test_inventory_and_shop():
         weapon = generate_item(3, rng)
     state.player.inventory.append(weapon)
 
-    snap = json.loads(webbridge.snapshot_json())
-    entry = next(e for e in snap["inventory"] if e["id"] == weapon.id)
+    # inventory/shop_stock were split out of snapshot_json() (a perf fix -
+    # they were being re-sorted/re-described on every move/wait even while
+    # the overlay was closed) into their own on-demand endpoints.
+    inv = json.loads(webbridge.inventory_json())
+    entry = next(e for e in inv if e["id"] == weapon.id)
     assert entry["details"], "inventory entries must include stat details"
     assert any("Attack" in line for line in entry["details"])
 
     snap = json.loads(webbridge.equip_item(weapon.id))
-    entry = next(e for e in snap["inventory"] if e["id"] == weapon.id)
+    inv = json.loads(webbridge.inventory_json())
+    entry = next(e for e in inv if e["id"] == weapon.id)
     assert entry["equipped"] is True
     assert snap["player"]["hero"]["weapon"] != "none"
 
@@ -277,11 +281,12 @@ def test_inventory_and_shop():
         depth += 1
     state.floor = floor
     state.player.gold = 100000
-    snap = json.loads(webbridge.snapshot_json())
-    assert snap["shop_stock"] and snap["shop_stock"][0]["affordable"]
-    stock_id = snap["shop_stock"][0]["id"]
+    shop = json.loads(webbridge.shop_json())
+    assert shop and shop[0]["affordable"]
+    stock_id = shop[0]["id"]
     snap = json.loads(webbridge.buy_item(stock_id))
-    assert any(e["id"] == stock_id for e in snap["inventory"])
+    inv = json.loads(webbridge.inventory_json())
+    assert any(e["id"] == stock_id for e in inv)
     gold_after_buy = snap["player"]["gold"]
     snap = json.loads(webbridge.sell_item(stock_id))
     assert snap["player"]["gold"] > gold_after_buy

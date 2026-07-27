@@ -457,7 +457,22 @@ def snapshot_json() -> str:
         ],
         "log": STATE.log[-12:],
         "events": STATE.take_events(),
-        "inventory": [_item_entry(i, p) for i in sort_items(p.inventory)],
-        "shop_stock": [_item_entry(i, p, price=i.value) for i in sort_items(floor.shop_stock)],
     }
     return json.dumps(snap)
+
+
+def inventory_json() -> str:
+    """The player's inventory, sorted/described (ui/iteminfo.py) - split out
+    of snapshot_json() since re-sorting and re-describing every item on
+    EVERY move/wait was pure waste while the inventory overlay is closed
+    (the overwhelming majority of the time). Fetched only when the
+    inventory or shop-sell-tab overlay actually opens or changes."""
+    p = STATE.player
+    return json.dumps([_item_entry(i, p) for i in sort_items(p.inventory)])
+
+
+def shop_json() -> str:
+    """The current floor's shop stock, same reasoning as inventory_json()."""
+    p = STATE.player
+    floor = STATE.floor
+    return json.dumps([_item_entry(i, p, price=i.value) for i in sort_items(floor.shop_stock)])
