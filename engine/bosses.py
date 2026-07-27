@@ -24,8 +24,10 @@ Turn structure per boss, once "chasing":
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as _dc_replace
 from typing import Optional
+
+from .entities import base_template_name
 
 PHASE_THRESHOLDS = (0.75, 0.50, 0.25)  # HP fraction; crossing below bumps the phase
 ENRAGE_ATTACK_MULT = {1: 1.0, 2: 1.0, 3: 1.15, 4: 1.35}
@@ -343,18 +345,20 @@ BOSS_KITS: dict = {
 
 
 def effective_attack(monster) -> int:
-    mult = monster.boss_state.get("buff_attack_mult", 1.0) if monster.is_boss else 1.0
+    # boss_state defaults to {} for every non-boss monster, so this already
+    # comes out to a no-op ×1.0 for them - no is_boss special-case needed
+    # (regular-monster damage is byte-identical to before this was un-fenced).
+    mult = monster.boss_state.get("buff_attack_mult", 1.0)
     return round(monster.attack * mult)
 
 
 def effective_defense(monster) -> int:
-    mult = monster.boss_state.get("buff_defense_mult", 1.0) if monster.is_boss else 1.0
+    mult = monster.boss_state.get("buff_defense_mult", 1.0)
     return round(monster.defense * mult)
 
 
 def _kit_for(monster) -> Optional[BossKit]:
-    base_name = monster.name[:-5] if monster.name.endswith(" Boss") else monster.name
-    return BOSS_KITS.get(base_name)
+    return BOSS_KITS.get(base_template_name(monster.name))
 
 
 def boss_status_text(boss_state: dict) -> str:
@@ -528,3 +532,79 @@ def _resolve_ability(kit, ability, monster, player, floor, rng) -> BossTurnResul
                                message=f"{ability.resolve_msg} You take {dmg} damage!")
 
     return BossTurnResult(kind="resolve", event="boss_ability", message="...")
+
+
+# --------------------------------------------------------------------------
+# Elites and "kited" regular monsters (ranged/caster AI, engine/traits.py):
+# a lighter-weight relative of the full boss engine above. Both share the
+# same telegraph-then-resolve-then-cooldown shape and reuse _resolve_ability
+# directly, but skip phases/awaken/enrage entirely - just one ability,
+# forever on the same cooldown, at the SAME boss_state dict shape a real
+# boss uses ({"pending", "cooldown"} is a subset of a real boss's keys, so
+# nothing here needs its own "fresh state" constructor - an empty {} already
+# reads back the same defaults via .get(key, default)).
+# --------------------------------------------------------------------------
+ELITE_ATTACK_MULT = 0.85  # reduced potency vs. a real boss with the same kit
+
+
+def _pick_kited_ability(kit, prefer_kind=None):
+    """The kit ability an elite/kited monster gets. self_heal/self_buff are
+    excluded because their duration/decay only ever ticks inside the full
+    phase-tracking loop in maybe_process_boss_turn - handing one to a
+    monster that never runs that loop would leave it permanently buffed."""
+    if prefer_kind:
+        return next((a for a in kit.abilities if a.kind == prefer_kind), None)
+    return next((a for a in kit.abilities if a.kind not in ("self_heal", "self_buff")), None)
+
+
+def _process_kited_turn(monster, player, floor, rng, potency_mult, prefer_kind=None) -> list:
+    kit = _kit_for(monster)
+    if kit is None:
+        return []
+    ability = _pick_kited_ability(kit, prefer_kind)
+    if ability is None:
+        return []
+    if potency_mult != 1.0:
+        # Scale the ABILITY's own attack_mult rather than the resolved
+        # damage after the fact - lifedrain's self-heal is derived from the
+        # same internal dmg value inside _resolve_ability, so scaling only
+        # the outgoing damage would let an elite heal at full strength while
+        # only hitting the player at reduced strength.
+        ability = _dc_replace(ability, attack_mult=ability.attack_mult * potency_mult)
+    bs = monster.boss_state
+
+    if bs.get("pending"):
+        bs["pending"] = False
+        result = _resolve_ability(kit, ability, monster, player, floor, rng)
+        bs["cooldown"] = ability.cooldown
+        return [result]
+
+    if bs.get("cooldown", 0) > 0:
+        bs["cooldown"] -= 1
+        return []
+
+    bs["pending"] = True
+    return [BossTurnResult(kind="telegraph", event="boss_telegraph", ability_kind=ability.kind,
+                            message=f"The {monster.name} {ability.telegraph_msg}")]
+
+
+def maybe_process_elite_turn(monster, player, floor, rng) -> list:
+    """An elite's one special move - full potency reduced by
+    ELITE_ATTACK_MULT, no phases/awaken/enrage. Whenever this returns []
+    (off cooldown check aside, every non-ability turn), world.py's normal
+    chase/melee logic runs for the elite exactly like any other monster."""
+    if not monster.is_elite or monster.state != "chasing":
+        return []
+    return _process_kited_turn(monster, player, floor, rng, potency_mult=ELITE_ATTACK_MULT)
+
+
+def maybe_process_kited_turn(monster, player, floor, rng, prefer_kind=None) -> list:
+    """The regular-monster equivalent for a "ranged"/"caster" AI trait
+    (engine/traits.py) - full potency (these are ordinary monsters, not a
+    tougher tier), same no-phases/no-awaken/no-enrage shape as an elite.
+    Callers gate on monster.state == "chasing" and the trait itself; the
+    is_boss/is_elite guard here is just a safety net against double-dipping
+    into this path for a monster already running the fuller engines above."""
+    if monster.is_boss or monster.is_elite:
+        return []
+    return _process_kited_turn(monster, player, floor, rng, potency_mult=1.0, prefer_kind=prefer_kind)

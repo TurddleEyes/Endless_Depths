@@ -11,6 +11,7 @@ import json
 
 from engine import bosses as boss_module
 from engine import constants as C
+from engine.entities import base_template_name
 from engine.world import GameState
 from engine import puzzles as puzzle_module
 from engine import replay as replay_module
@@ -397,8 +398,8 @@ def snapshot_json() -> str:
         "explored": ["".join("1" if v else "0" for v in row) for row in floor.explored],
         "monsters": [
             {"x": m.x, "y": m.y, "hp": m.hp, "max_hp": m.max_hp, "boss": m.is_boss,
-             "sprite": S.MONSTER_KEYS.get(
-                 m.name[:-5] if m.name.endswith(" Boss") else m.name, "goblin")}
+             "elite": m.is_elite,
+             "sprite": S.MONSTER_KEYS.get(base_template_name(m.name), "goblin")}
             for m in floor.monsters if m.is_alive()
         ],
         "items": [

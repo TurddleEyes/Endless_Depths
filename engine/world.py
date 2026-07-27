@@ -22,6 +22,7 @@ from .items import generate_item, use_item as apply_item_effect
 from . import puzzles as puzzle_module
 from . import shop as shop_module
 from . import status as status_module
+from . import traits as traits_module
 
 MAX_EVENTS = 200
 
@@ -54,6 +55,24 @@ def _bfs_next_step(floor, start, goal, blocked):
         if step is None:
             return None
     return step
+
+
+def _flee_step(floor, monster, player, occupied):
+    """The "fleeing" AI trait's move: the walkable, unoccupied neighbor that
+    most INCREASES distance from the player - the inverse of _bfs_next_step
+    pathing toward a goal. Returns None if every neighbor is a wall, another
+    monster, or doesn't actually gain distance (i.e. the monster is cornered)."""
+    best = None
+    best_dist = abs(monster.x - player.x) + abs(monster.y - player.y)
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        nx, ny = monster.x + dx, monster.y + dy
+        if not floor.is_walkable(nx, ny) or (nx, ny) in occupied:
+            continue
+        d = abs(nx - player.x) + abs(ny - player.y)
+        if d > best_dist:
+            best_dist = d
+            best = (nx, ny)
+    return best
 
 
 class GameState:
@@ -653,6 +672,20 @@ class GameState:
         for m in list(floor.monsters):
             if not m.is_alive():
                 continue
+
+            for outcome in status_module.tick(m.status_effects, player.turns):
+                if outcome.kind == "dot":
+                    dmg = outcome.dmg
+                    if not outcome.can_kill:
+                        dmg = min(dmg, max(0, m.hp - 1))
+                    if dmg > 0:
+                        m.hp -= dmg
+                        self._emit("monster_status_tick", x=m.x, y=m.y, status=outcome.type, dmg=dmg)
+            if not m.is_alive():
+                occupied.discard((m.x, m.y))
+                self._kill_monster(m)
+                continue
+
             dist = abs(m.x - player.x) + abs(m.y - player.y)
             if floor.visible[m.y][m.x] or dist <= 1:
                 m.state = "chasing"
@@ -666,26 +699,50 @@ class GameState:
                     return
                 if turn_consumed:
                     continue
+            elif m.is_elite:
+                turn_consumed = False
+                for result in boss_module.maybe_process_elite_turn(m, player, floor, self.rng):
+                    if self._apply_boss_result(m, result):
+                        turn_consumed = True
+                if self.game_over:
+                    return
+                if turn_consumed:
+                    continue
+
+            trait = traits_module.trait_for(m)
+
+            if (not m.is_boss and not m.is_elite and m.state == "chasing"
+                    and trait.ai in ("ranged", "caster")):
+                prefer = "ranged_bolt" if trait.ai == "ranged" else None
+                turn_consumed = False
+                for result in boss_module.maybe_process_kited_turn(
+                        m, player, floor, self.rng, prefer_kind=prefer):
+                    if self._apply_boss_result(m, result):
+                        turn_consumed = True
+                if self.game_over:
+                    return
+                if turn_consumed:
+                    continue
 
             if m.state != "chasing":
                 if self.rng.random() < 0.3:
                     self._wander(m, occupied)
                 continue
 
+            if trait.ai == "fleeing" and m.hp > m.max_hp * 0.5:
+                occupied.discard((m.x, m.y))
+                flee_to = _flee_step(floor, m, player, occupied)
+                if flee_to:
+                    m.x, m.y = flee_to
+                    occupied.add((m.x, m.y))
+                    continue
+                occupied.add((m.x, m.y))  # cornered - fall through to normal chase/melee
+
             if dist <= 1:
-                damage, crit, msg = resolve_attack(
-                    m.name, "you", boss_module.effective_attack(m), player.defense_power, self.rng
-                )
-                player.hp -= damage
-                self._log(msg)
-                # x/y = the attacker, so renderers can play a lunge from it.
-                self._emit("player_hit", dmg=damage, crit=crit, x=m.x, y=m.y)
-                if "Spider" in m.name and self.rng.random() < 0.2:
-                    self._apply_poison(dmg=max(1, 1 + self.depth // 8))
-                    self._log("The spider's venom seeps into the wound!")
-                if player.hp <= 0:
-                    self._die()
+                if self._monster_melee(m, player):
                     return
+                if trait.proc_type and self.rng.random() < trait.proc_chance:
+                    self._apply_monster_proc(m, trait)
                 continue
 
             occupied.discard((m.x, m.y))
@@ -693,6 +750,39 @@ class GameState:
             if step:
                 m.x, m.y = step
             occupied.add((m.x, m.y))
+
+    def _monster_melee(self, monster, player) -> bool:
+        """One monster's plain melee swing. Returns True if it killed the
+        player (caller must stop processing further monsters this turn,
+        matching the existing early-return convention)."""
+        damage, crit, msg = resolve_attack(
+            monster.name, "you", boss_module.effective_attack(monster), player.defense_power, self.rng
+        )
+        player.hp -= damage
+        self._log(msg)
+        # x/y = the attacker, so renderers can play a lunge from it.
+        self._emit("player_hit", dmg=damage, crit=crit, x=monster.x, y=monster.y)
+        if player.hp <= 0:
+            self._die()
+            return True
+        return False
+
+    _PROC_FLAVOR = {
+        "poison": "venom seeps into the wound!",
+        "burn": "attack leaves your skin blistering!",
+        "bleed": "claws tear a wound that won't stop bleeding!",
+    }
+
+    def _apply_monster_proc(self, monster, trait):
+        dmg = max(1, trait.proc_dmg_flat + self.depth // trait.proc_dmg_div)
+        is_new = status_module.add_effect(self.player.status_effects, {"type": trait.proc_type, "dmg": dmg})
+        flavor = self._PROC_FLAVOR.get(trait.proc_type, "attack leaves something behind!")
+        self._log(f"The {monster.name}'s {flavor}")
+        if is_new:
+            if trait.proc_type == "poison":
+                self._emit("poisoned")
+            else:
+                self._emit("status_applied", status=trait.proc_type)
 
     def _apply_boss_result(self, monster, result) -> bool:
         """Applies one BossTurnResult from engine/bosses.py. Returns True if

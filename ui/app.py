@@ -18,6 +18,7 @@ from engine import bosses as boss_module
 from engine import constants as C
 from engine import puzzles as puzzle_module
 from engine import save as save_module
+from engine.entities import base_template_name
 from engine.world import GameState
 from engine.replay import (ReplayPlayer, build_replay_dict, replay_from_text,
                             replay_to_code)
@@ -1512,6 +1513,14 @@ class App(tk.Tk):
                 self._add_fx("num", x=p.x, y=p.y, text=str(ev["dmg"]), color=color)
             elif et == "status_expired":
                 self._add_fx("num", x=p.x, y=p.y, text=f"{ev.get('status')} fades", color="#9a9a9a")
+            elif et == "status_applied":
+                status = ev.get("status")
+                self.audio.play("splat")
+                color = "#e05656" if status == "burn" else "#c94a4a"
+                self._add_fx("num", x=p.x, y=p.y, text=f"{status}!", color=color)
+            elif et == "monster_status_tick":
+                color = "#e05656" if ev.get("status") == "burn" else "#c94a4a"
+                self._add_fx("num", x=ev["x"], y=ev["y"], text=str(ev["dmg"]), color=color)
             elif et == "descend":
                 self.audio.play("stairs")
                 if ev.get("boss_floor"):
@@ -1928,8 +1937,7 @@ class App(tk.Tk):
                             for pl in pz["plates"]))
 
     def _monster_sprite_key(self, monster) -> str:
-        base_name = monster.name[:-5] if monster.name.endswith(" Boss") else monster.name
-        return sprite_defs.MONSTER_KEYS.get(base_name, "goblin")
+        return sprite_defs.MONSTER_KEYS.get(base_template_name(monster.name), "goblin")
 
     def _hero_variant_key(self) -> tuple:
         p = self.state.player
@@ -2052,6 +2060,8 @@ class App(tk.Tk):
                                              anchor="nw")
                         if monster.is_boss:
                             canvas.create_image(mx, my, image=sprites["crown"], anchor="nw")
+                        elif monster.is_elite:
+                            canvas.create_image(mx, my, image=sprites["elite_mark"], anchor="nw")
                         if monster.hp < monster.max_hp:
                             frac = max(0.0, monster.hp / monster.max_hp)
                             bar_w = ts - 8

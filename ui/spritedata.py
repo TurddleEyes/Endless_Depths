@@ -1246,6 +1246,9 @@ SPRITE_DEFS = {
     "gold": (GOLD, {"o": _o, "g": "#f2c94c", "d": "#c9992c"}),
     # overlays
     "crown": (CROWN, {"g": "#f2c94c", "e": "#e03050"}),
+    # same shape as the boss crown, recolored dimmer/cooler - "tougher than
+    # usual" without claiming to be an actual boss
+    "elite_mark": (CROWN, {"g": "#9fa8b5", "e": "#5a90c9"}),
     # traps
     "trap_spike": (TRAP_SPIKE, {"o": _o, "s": "#b8c0cc", "w": "#eef2f8", "b": "#26262e"}),
     "trap_poison": (TRAP_POISON, {"o": _o, "g": "#58c058", "d": "#2e7d32"}),

@@ -63,6 +63,7 @@ FILES=(
     engine/save.py
     engine/shop.py
     engine/status.py
+    engine/traits.py
     engine/world.py
     ui/__init__.py
     ui/spritedata.py

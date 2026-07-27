@@ -150,15 +150,34 @@ class Monster:
     gold_reward: int
     state: str = "idle"  # idle, chasing
     is_boss: bool = False
-    # Boss-only runtime scratch space (plain JSON-able data so it survives
-    # save/replay fingerprinting for free). See engine/bosses.py. Keys:
-    # phase (int), cooldowns (dict[ability_name -> turns left]),
-    # pending (ability name awaiting resolution, or None),
-    # buff_turns_left (int), buff_attack_mult/buff_defense_mult (float).
+    is_elite: bool = False
+    # Ability-engine scratch space (plain JSON-able data - see
+    # engine/bosses.py). For a real boss: phase (int), cooldowns
+    # (dict[ability_name -> turns left]), pending (ability name awaiting
+    # resolution, or None), buff_turns_left (int), buff_attack_mult/
+    # buff_defense_mult (float). For an elite or a regular monster using a
+    # "ranged"/"caster" AI trait (engine/traits.py), it's the same dict
+    # reused for a much smaller shape: {"pending": bool, "cooldown": int}.
     boss_state: dict = field(default_factory=dict)
+    # Same schema as Player.status_effects (engine/status.py) - nothing
+    # currently inflicts a status on a monster, this is foundation for a
+    # future on-hit weapon proc. Deliberately NOT serialized: monsters never
+    # go through GameState.to_dict() at all (a loaded save regenerates the
+    # floor from scratch), so there's nothing to round-trip.
+    status_effects: list = field(default_factory=list)
 
     def is_alive(self) -> bool:
         return self.hp > 0
+
+
+def base_template_name(name: str) -> str:
+    """Strips the " Boss"/" Elite" cosmetic suffix generate_monster() adds,
+    recovering the original MONSTER_TEMPLATES name - the shared lookup key
+    for boss kits, elite/kited abilities, and monster sprites alike."""
+    for suffix in (" Boss", " Elite"):
+        if name.endswith(suffix):
+            return name[:-len(suffix)]
+    return name
 
 
 def _eligible_templates(depth: int) -> list:
@@ -191,6 +210,25 @@ def _boss_scaled_stats(hp: int, attack: int, defense: int, xp: int, gold: int) -
             round(gold * _BOSS_GOLD_MULT))
 
 
+# A tougher-than-usual instance of an ordinary monster (not a floor's one
+# guaranteed boss) - noticeably stronger, but well below boss-tier, and it
+# only ever gets ONE reduced-potency kit ability with no phases/awaken/
+# enrage (see bosses.py maybe_process_elite_turn).
+_ELITE_HP_MULT = 1.6
+_ELITE_ATTACK_MULT = 1.2
+_ELITE_DEFENSE_MULT = 1.15
+_ELITE_XP_MULT = 1.8
+_ELITE_GOLD_MULT = 1.8
+ELITE_MIN_DEPTH = 3
+ELITE_CHANCE = 0.12
+
+
+def _elite_scaled_stats(hp: int, attack: int, defense: int, xp: int, gold: int) -> tuple:
+    return (round(hp * _ELITE_HP_MULT), round(attack * _ELITE_ATTACK_MULT),
+            round(defense * _ELITE_DEFENSE_MULT), round(xp * _ELITE_XP_MULT),
+            round(gold * _ELITE_GOLD_MULT))
+
+
 def _fresh_boss_state() -> dict:
     return {"phase": 1, "cooldowns": {}, "pending": None,
             "buff_turns_left": 0, "buff_attack_mult": 1.0, "buff_defense_mult": 1.0,
@@ -209,15 +247,23 @@ def generate_monster(depth: int, rng, x: int, y: int, force_boss: bool = False) 
     name, glyph, hp, attack, defense, xp, gold, min_depth = rng.choices(eligible, weights=weights, k=1)[0]
     hp, attack, defense, xp, gold = _scaled_stats(hp, attack, defense, xp, gold, depth)
 
-    boss_state = {}
+    is_elite = False
     if force_boss:
         hp, attack, defense, xp, gold = _boss_scaled_stats(hp, attack, defense, xp, gold)
         boss_state = _fresh_boss_state()
         name = f"{name} Boss"
         glyph = glyph.upper()
+    else:
+        # Roll AFTER the boss check so a boss floor's guaranteed boss never
+        # also becomes "elite" - the two tiers are mutually exclusive.
+        is_elite = depth >= ELITE_MIN_DEPTH and rng.random() < ELITE_CHANCE
+        boss_state = {}
+        if is_elite:
+            hp, attack, defense, xp, gold = _elite_scaled_stats(hp, attack, defense, xp, gold)
+            name = f"{name} Elite"
 
     return Monster(x, y, name, glyph, hp, hp, attack, defense, xp, gold,
-                   is_boss=force_boss, boss_state=boss_state)
+                   is_boss=force_boss, is_elite=is_elite, boss_state=boss_state)
 
 
 def generate_boss_of(name: str, depth: int, x: int, y: int) -> Monster:
