@@ -985,6 +985,75 @@ def test_traps():
     print("OK: spike trap triggers, damages, and emits an event")
 
 
+def test_biome_bands():
+    from engine.biomes import biome_for
+
+    assert biome_for(1).key == "" and biome_for(10).key == ""
+    assert biome_for(11).key == "_caverns" and biome_for(20).key == "_caverns"
+    assert biome_for(21).key == "_frozen" and biome_for(30).key == "_frozen"
+    assert biome_for(31).key == "_volcanic" and biome_for(40).key == "_volcanic"
+    assert biome_for(41).key == "_abyss" and biome_for(200).key == "_abyss"
+    # Same band -> the SAME instance (world.py's _descend compares with "is").
+    assert biome_for(15) is biome_for(19)
+    assert biome_for(15) is not biome_for(25)
+    print("OK: biome_for() bands depth into 5 stable, deterministic biomes")
+
+
+def test_biome_gated_hazard_traps():
+    import random
+    from engine.dungeon import generate_floor
+
+    def trap_kinds_at(depth, trials=15):
+        kinds = set()
+        for seed in range(trials):
+            floor = generate_floor(depth, random.Random(seed))
+            kinds.update(t.kind for t in floor.traps)
+        return kinds
+
+    frozen_kinds = trap_kinds_at(25)
+    volcanic_kinds = trap_kinds_at(35)
+    catacombs_kinds = trap_kinds_at(5)
+    assert "ice" in frozen_kinds, "frozen-band floors should be able to roll ice traps"
+    assert "ice" not in catacombs_kinds, "ice traps must never appear outside the frozen band"
+    assert "burn" in volcanic_kinds, "volcanic-band floors should be able to roll burn traps"
+    assert "burn" not in frozen_kinds, "burn traps must never appear outside the volcanic band"
+    print("OK: biome-gated hazard trap kinds (ice/burn) only ever appear in their own depth band")
+
+
+def test_biome_hazard_traps_afflict_player():
+    from engine.dungeon import Trap
+
+    state = GameState(seed=201)
+    state.new_game()
+    state.player.hp = state.player.max_hp = 1000
+    state._trigger_trap(Trap(0, 0, "burn"))
+    assert any(e.get("type") == "burn" for e in state.player.status_effects)
+
+    state2 = GameState(seed=202)
+    state2.new_game()
+    state2._trigger_trap(Trap(0, 0, "ice"))
+    assert any(e.get("type") == "slow" for e in state2.player.status_effects)
+    print("OK: biome hazard traps (burn/ice) afflict the player through the M2 status system")
+
+
+def test_biome_entry_flavor_message():
+    state = GameState(seed=203)
+    state.new_game()
+    state.depth = 10
+    state._enter_floor(regenerate=True)
+
+    log_len = len(state.log)
+    state._descend()  # 10 -> 11: crosses into the Caverns
+    assert any("Flooded Caverns" in m for m in state.log[log_len:]), \
+        "crossing a biome boundary should log a flavor message"
+
+    log_len = len(state.log)
+    state._descend()  # 11 -> 12: stays in the Caverns
+    assert not any("entered" in m for m in state.log[log_len:]), \
+        "staying within the same biome should not repeat the entry message"
+    print("OK: crossing a biome boundary logs a one-time flavor message, staying within one doesn't")
+
+
 def test_poison_status():
     from engine.items import make_cure_potion
 
@@ -1317,6 +1386,10 @@ def _state_fingerprint(state):
                             json.dumps(m.status_effects, sort_keys=True))
                            for m in state.floor.monsters),
         "boss_arena_sealed": state.floor.boss_arena_sealed,
+        # Never compared before (a pre-existing gap) - trap KIND is now
+        # biome-dependent (M5), worth catching a desync in either kind or
+        # triggered-state after a replay.
+        "traps": sorted((t.x, t.y, t.kind, t.triggered) for t in state.floor.traps),
         "chests": sorted((c.x, c.y, c.kind, c.gold,
                           tuple(i.name for i in c.items))
                          for c in state.floor.chests),
@@ -1658,6 +1731,10 @@ if __name__ == "__main__":
     test_shop_transactions()
     test_shop_prices_scale_with_depth()
     test_traps()
+    test_biome_bands()
+    test_biome_gated_hazard_traps()
+    test_biome_hazard_traps_afflict_player()
+    test_biome_entry_flavor_message()
     test_poison_status()
     test_burn_bleed_status()
     test_freeze_slow_status()

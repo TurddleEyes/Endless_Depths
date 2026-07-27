@@ -1171,6 +1171,41 @@ SPRITE_DEFS = {
     "wall": (WALL_TILE, {"a": "#34343f", "m": "#1e1e26", "h": "#41414e"}),
     "wall2": (WALL_TILE_CRACKED, {"a": "#34343f", "m": "#1e1e26", "h": "#41414e",
                                    "k": "#26262e"}),
+    # -- Biome palette variants (engine/biomes.py) - same grid SHAPES as the
+    # default catacombs tiles above, just recolored. Depth 1-10 keeps the
+    # plain "floor"/"wall" keys unchanged; deeper bands pick these by suffix.
+    "floor_caverns": (FLOOR_TILE, {"a": "#2f4a4a", "b": "#28403f", "c": "#3a5a58"}),
+    "floor2_caverns": (FLOOR_TILE_CRACKED, {"a": "#2f4a4a", "b": "#28403f", "c": "#3a5a58",
+                                              "d": "#203535"}),
+    "floor3_caverns": (FLOOR_TILE_MOSSY, {"a": "#2f4a4a", "b": "#28403f", "c": "#3a5a58",
+                                            "m": "#3d6a5a", "n": "#2c4f42"}),
+    "wall_caverns": (WALL_TILE, {"a": "#243838", "m": "#152626", "h": "#2f4a4a"}),
+    "wall2_caverns": (WALL_TILE_CRACKED, {"a": "#243838", "m": "#152626", "h": "#2f4a4a",
+                                            "k": "#1c2f2f"}),
+    "floor_frozen": (FLOOR_TILE, {"a": "#3a5568", "b": "#2f4658", "c": "#4a6a80"}),
+    "floor2_frozen": (FLOOR_TILE_CRACKED, {"a": "#3a5568", "b": "#2f4658", "c": "#4a6a80",
+                                             "d": "#28404f"}),
+    "floor3_frozen": (FLOOR_TILE_MOSSY, {"a": "#3a5568", "b": "#2f4658", "c": "#4a6a80",
+                                           "m": "#5a7a8f", "n": "#3f5a6a"}),
+    "wall_frozen": (WALL_TILE, {"a": "#2c4356", "m": "#1c2c38", "h": "#3a5568"}),
+    "wall2_frozen": (WALL_TILE_CRACKED, {"a": "#2c4356", "m": "#1c2c38", "h": "#3a5568",
+                                           "k": "#233848"}),
+    "floor_volcanic": (FLOOR_TILE, {"a": "#4a2620", "b": "#3a1c18", "c": "#5a3025"}),
+    "floor2_volcanic": (FLOOR_TILE_CRACKED, {"a": "#4a2620", "b": "#3a1c18", "c": "#5a3025",
+                                               "d": "#2e1712"}),
+    "floor3_volcanic": (FLOOR_TILE_MOSSY, {"a": "#4a2620", "b": "#3a1c18", "c": "#5a3025",
+                                             "m": "#6a3020", "n": "#4a2015"}),
+    "wall_volcanic": (WALL_TILE, {"a": "#3a1f1a", "m": "#241210", "h": "#4a2a20"}),
+    "wall2_volcanic": (WALL_TILE_CRACKED, {"a": "#3a1f1a", "m": "#241210", "h": "#4a2a20",
+                                             "k": "#2c1712"}),
+    "floor_abyss": (FLOOR_TILE, {"a": "#241c33", "b": "#1c1628", "c": "#2e2440"}),
+    "floor2_abyss": (FLOOR_TILE_CRACKED, {"a": "#241c33", "b": "#1c1628", "c": "#2e2440",
+                                            "d": "#170f22"}),
+    "floor3_abyss": (FLOOR_TILE_MOSSY, {"a": "#241c33", "b": "#1c1628", "c": "#2e2440",
+                                          "m": "#332a4a", "n": "#241c38"}),
+    "wall_abyss": (WALL_TILE, {"a": "#1c1628", "m": "#120d1c", "h": "#2a2138"}),
+    "wall2_abyss": (WALL_TILE_CRACKED, {"a": "#1c1628", "m": "#120d1c", "h": "#2a2138",
+                                          "k": "#160f22"}),
     "stairs": (STAIRS_TILE, {"a": "#43434f", "d": "#23232b", "h": "#82828f",
                               "1": "#6a6a7c", "2": "#4a4a58", "3": "#32323c",
                               "g": "#17171d", "k": "#08080c", "w": "#8fd9ef"}),
@@ -1253,6 +1288,10 @@ SPRITE_DEFS = {
     "trap_spike": (TRAP_SPIKE, {"o": _o, "s": "#b8c0cc", "w": "#eef2f8", "b": "#26262e"}),
     "trap_poison": (TRAP_POISON, {"o": _o, "g": "#58c058", "d": "#2e7d32"}),
     "trap_teleport": (TRAP_TELEPORT, {"p": "#b060e0", "q": "#7030a0"}),
+    # biome hazards (engine/biomes.py) - same burst shape as trap_poison,
+    # recolored for fire/ice
+    "trap_burn": (TRAP_POISON, {"o": _o, "g": "#e0603a", "d": "#a02e10"}),
+    "trap_ice": (TRAP_POISON, {"o": _o, "g": "#8fd9ef", "d": "#3a6a80"}),
     # floor decorations (cosmetic)
     "decor_bones": (DECOR_BONES, {"w": "#c8c4b4"}),
     "decor_rubble": (DECOR_RUBBLE, {"r": "#55555f", "s": "#616170"}),
@@ -1270,6 +1309,8 @@ TRAP_KEYS = {
     "spike": "trap_spike",
     "poison": "trap_poison",
     "teleport": "trap_teleport",
+    "burn": "trap_burn",
+    "ice": "trap_ice",
 }
 
 DECOR_SPRITES = ("decor_bones", "decor_rubble", "decor_moss")
@@ -1325,12 +1366,18 @@ PUZZLE_TILE_KEYS = {
     "B": "block",
 }
 
+# Biome suffixes (engine/biomes.py Biome.key values) - used here to build
+# every biome-recolored floor/wall tile's dim variant without hand-listing
+# all 20 keys.
+_BIOME_SUFFIXES = ("", "_caverns", "_frozen", "_volcanic", "_abyss")
+
 # Sprites that get a darkened "explored but not visible" variant.
-DIM_TILES = ("floor", "floor2", "floor3", "wall", "wall2", "stairs",
-             "door_rune", "door_boss", "chest", "lever_up", "lever_down",
-             "plate_off", "plate_on", "block", "rune_switch",
-             "trap_spike", "trap_poison", "trap_teleport",
-             "decor_bones", "decor_rubble", "decor_moss")
+DIM_TILES = tuple(
+    f"{base}{suffix}" for suffix in _BIOME_SUFFIXES for base in ("floor", "floor2", "floor3", "wall", "wall2")
+) + ("stairs", "door_rune", "door_boss", "chest", "lever_up", "lever_down",
+     "plate_off", "plate_on", "block", "rune_switch",
+     "trap_spike", "trap_poison", "trap_teleport", "trap_burn", "trap_ice",
+     "decor_bones", "decor_rubble", "decor_moss")
 DIM_FACTOR = 0.45
 
 # Deterministic per-tile texture variation, shared by both renderers so the

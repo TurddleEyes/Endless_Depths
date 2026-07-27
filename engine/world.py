@@ -12,6 +12,7 @@ from __future__ import annotations
 import random
 from collections import deque
 
+from . import biomes as biome_module
 from . import constants as C
 from . import bosses as boss_module
 from .combat import resolve_attack
@@ -222,22 +223,32 @@ class GameState:
             self._afflict_player("poison", dmg=max(1, 1 + self.depth // 6))
             self._log("A cloud of toxic gas bursts from a hidden vent!")
             self._emit("trap", kind="poison", x=trap.x, y=trap.y)
+        elif trap.kind == "burn":
+            self._afflict_player("burn", dmg=max(1, 2 + self.depth // 6))
+            self._log("A jet of flame roars up from a hidden vent!")
+            self._emit("trap", kind="burn", x=trap.x, y=trap.y)
+        elif trap.kind == "ice":
+            self._afflict_player("slow")
+            self._log("A blast of frost locks your joints!")
+            self._emit("trap", kind="ice", x=trap.x, y=trap.y)
         elif trap.kind == "teleport":
             self._log("A rune flares beneath your feet - the world lurches!")
             self._emit("trap", kind="teleport", x=trap.x, y=trap.y)
             self._teleport_player()
             self._emit("teleport")
 
-    def _afflict_player(self, status_type: str, dmg: int) -> bool:
-        """Applies an ailment through engine/status.py, after checking
+    def _afflict_player(self, status_type: str, **kwargs) -> bool:
+        """Applies a status effect through engine/status.py, after checking
         equipped armor/accessory resistance (M4 affix). Returns True if it
         actually landed - poison never wears off on its own (only a Potion
         of Cure or dying ends it), and re-applying it just keeps the
-        strongest dose (see engine/status.py: add_effect handles the merge)."""
+        strongest dose (see engine/status.py: add_effect handles the merge).
+        kwargs are whatever that status type needs - "dmg" for poison/burn/
+        bleed, nothing at all for a plain "slow" (a biome ice trap)."""
         if self._player_resists(status_type):
             self._log(f"Your gear wards off the {status_type}!")
             return False
-        is_new = status_module.add_effect(self.player.status_effects, {"type": status_type, "dmg": dmg})
+        is_new = status_module.add_effect(self.player.status_effects, {"type": status_type, **kwargs})
         if is_new:
             if status_type == "poison":
                 self._emit("poisoned")
@@ -378,10 +389,14 @@ class GameState:
             self._emit("levelup", toast=f"Level {self.player.level}!", cat="level")
 
     def _descend(self):
+        prev_biome = biome_module.biome_for(self.depth)
         self.depth += 1
         self._enter_floor(regenerate=True)
         self._log(f"You descend the stairs...")
         self._log(f"-- Floor {self.depth} --")
+        biome = biome_module.biome_for(self.depth)
+        if biome is not prev_biome:
+            self._log(f"The air changes around you - you've entered {biome.name}.")
         boss_floor = any(m.is_boss for m in self.floor.monsters)
         self._emit("descend", boss_floor=boss_floor)
         if boss_floor:
@@ -850,7 +865,7 @@ class GameState:
 
     def _apply_monster_proc(self, monster, trait):
         dmg = max(1, trait.proc_dmg_flat + self.depth // trait.proc_dmg_div)
-        if self._afflict_player(trait.proc_type, dmg):
+        if self._afflict_player(trait.proc_type, dmg=dmg):
             flavor = self._PROC_FLAVOR.get(trait.proc_type, "attack leaves something behind!")
             self._log(f"The {monster.name}'s {flavor}")
 

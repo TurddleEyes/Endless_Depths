@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
+from . import biomes as biome_module
 from . import constants as C
 from .entities import Monster, generate_monster
 from .items import Item, generate_item, make_key
@@ -322,7 +323,10 @@ def generate_floor(depth: int, rng) -> Floor:
 
     traps = []
     n_traps = min(rng.randint(0, 2) + depth // 5, 6)
+    # Biome-gated hazard kinds (engine/biomes.py) mix in on top of the base
+    # pool - catacombs/caverns/abyss floors are unaffected (empty tuple).
     trap_kinds = ["spike", "spike", "spike", "poison", "poison", "teleport"]
+    trap_kinds.extend(biome_module.biome_for(depth).extra_trap_kinds)
     for _ in range(n_traps):
         room = rng.choice(scatter_rooms)
         for _ in range(10):

@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 
+from engine import biomes as biome_module
 from engine import bosses as boss_module
 from engine import constants as C
 from engine.entities import base_template_name
@@ -334,6 +335,10 @@ def floor_data_json() -> str:
         "height": floor.height,
         "tiles": ["".join(row) for row in floor.tiles],
         "variants": variants,
+        # Sprite-key suffix for this floor's biome (engine/biomes.py) - JS
+        # appends it to the floor/wall base key rather than re-deriving the
+        # depth-band logic itself, so there's one source of truth.
+        "biome": biome_module.biome_for(floor.depth).key,
         "tiles_version": floor.tiles_version,
         "stairs": list(floor.stairs_pos),
         "shop": list(floor.shop_pos) if floor.shop_pos else None,

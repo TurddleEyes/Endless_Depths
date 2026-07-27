@@ -14,6 +14,7 @@ import time
 import tkinter as tk
 from datetime import datetime
 
+from engine import biomes as biome_module
 from engine import bosses as boss_module
 from engine import constants as C
 from engine import puzzles as puzzle_module
@@ -1924,6 +1925,7 @@ class App(tk.Tk):
         depth = self.state.floor.depth
         if tile == C.TILE_WALL:
             base = sprite_defs.WALL_VARIANTS[sprite_defs.wall_variant(depth, fx, fy)]
+            base += biome_module.biome_for(depth).key
         elif tile == C.TILE_STAIRS:
             base = "stairs"
         elif tile == C.TILE_LEVER:
@@ -1934,6 +1936,7 @@ class App(tk.Tk):
             base = sprite_defs.PUZZLE_TILE_KEYS[tile]
         else:  # floor (the shopkeeper stands on a floor tile)
             base = sprite_defs.FLOOR_VARIANTS[sprite_defs.floor_variant(depth, fx, fy)]
+            base += biome_module.biome_for(depth).key
         return base if visible else base + "_dim"
 
     def _lever_pulled(self, x: int, y: int) -> bool:

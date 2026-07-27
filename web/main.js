@@ -31,8 +31,8 @@ function pickOrientation() {
 const PY_FILES = [
   "engine/__init__.py", "engine/bosses.py", "engine/constants.py", "engine/combat.py",
   "engine/dungeon.py", "engine/entities.py", "engine/fov.py",
-  "engine/items.py", "engine/puzzles.py", "engine/replay.py", "engine/save.py",
-  "engine/shop.py", "engine/status.py", "engine/traits.py", "engine/world.py",
+  "engine/biomes.py", "engine/items.py", "engine/puzzles.py", "engine/replay.py",
+  "engine/save.py", "engine/shop.py", "engine/status.py", "engine/traits.py", "engine/world.py",
   "ui/__init__.py", "ui/spritedata.py", "ui/iteminfo.py", "ui/audio.py", "ui/lore.py",
 ];
 
@@ -1488,6 +1488,11 @@ function render() {
       else if (tile === "_") base = propOn[key] ? "plate_on" : "plate_off";
       else if (variant === "1") base = "floor2";
       else if (variant === "2") base = "floor3";
+      // Biome palette (engine/biomes.py) only applies to plain floor/wall
+      // tiles - stairs/doors/chests/etc keep their fixed look everywhere.
+      if (base === "floor" || base === "floor2" || base === "floor3" || base === "wall" || base === "wall2") {
+        base += floorData.biome || "";
+      }
       blit(base + dim, col, row);
 
       if (trapAt[key]) blit(trapAt[key] + dim, col, row);

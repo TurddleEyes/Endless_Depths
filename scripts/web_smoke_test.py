@@ -55,6 +55,33 @@ def test_monster_sprite_completeness():
           f"{SPRITE_PX}x{SPRITE_PX} sprites")
 
 
+def test_biome_sprite_completeness():
+    """Every biome's sprite-key suffix (engine/biomes.py) must resolve to a
+    real floor/floor2/floor3/wall/wall2 sprite AND have a DIM_TILES entry -
+    both renderers append the suffix blind (ui/app.py _tile_sprite_key,
+    web/main.js's render()), so a missing one would KeyError mid-render
+    instead of falling back to anything."""
+    from engine.biomes import BIOMES
+    from ui.spritedata import SPRITE_DEFS, DIM_TILES, TRAP_KEYS, SPRITE_PX
+
+    tile_bases = ("floor", "floor2", "floor3", "wall", "wall2")
+    for _min_depth, biome in BIOMES:
+        for base in tile_bases:
+            key = base + biome.key
+            assert key in SPRITE_DEFS, f"biome {biome.name!r} missing sprite {key!r}"
+            assert key in DIM_TILES, f"biome {biome.name!r} sprite {key!r} has no dim variant"
+            grid, palette = SPRITE_DEFS[key]
+            assert len(grid) == SPRITE_PX and all(len(row) == SPRITE_PX for row in grid), \
+                f"sprite {key!r} is not a clean {SPRITE_PX}x{SPRITE_PX} grid"
+            used_chars = {ch for row in grid for ch in row if ch != "."}
+            missing = used_chars - set(palette)
+            assert not missing, f"sprite {key!r} uses unmapped palette chars {missing}"
+        for kind in biome.extra_trap_kinds:
+            assert kind in TRAP_KEYS and TRAP_KEYS[kind] in SPRITE_DEFS, \
+                f"biome {biome.name!r} hazard trap kind {kind!r} has no sprite"
+    print(f"OK: all {len(BIOMES)} biomes resolve to valid floor/wall sprites with dim variants")
+
+
 def test_hero_facings():
     """The hero has four facings; left is a mirror of right, up hides the
     weapon, and the bridge accepts the facing argument (with a default,
@@ -454,6 +481,7 @@ if __name__ == "__main__":
     test_no_tkinter()
     test_atlas()
     test_monster_sprite_completeness()
+    test_biome_sprite_completeness()
     test_hero_facings()
     test_texture_codec_and_pack()
     test_game_flow()
