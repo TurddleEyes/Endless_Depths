@@ -688,6 +688,22 @@ body.dpad-off #touch-actions { flex-direction: row; }
    live down here as overrides rather than needing !important. */
 body.portrait h1 { font-size: 1.7em; letter-spacing: 2px; }
 body.portrait button { min-width: 180px; }
+/* The specificity note above only holds for ID selectors - a bare class
+   (.dpad-btn, .touch-btn, .puzzle-btn, .overlay-buttons button) has FEWER
+   type selectors than "body.portrait button" (1 class + 1 element vs.
+   1 class + 2 elements), so at equal class-count the extra element on the
+   portrait rule wins and silently re-inflates every "reset to compact"
+   button back to 180px wide in portrait - this is what broke the touch
+   D-pad and its arrow glyphs (stretched, misaligned cells; icon lost
+   inside an oversized button) on phones. Restore each with a portrait
+   override of matching-or-higher specificity instead of relying on the
+   plain class alone. */
+body.portrait .dpad-btn,
+body.portrait .touch-btn,
+body.portrait .puzzle-btn,
+body.portrait .overlay-buttons button {
+  min-width: 0;
+}
 
 body.portrait .screen h1 { margin-top: 4px; }
 body.portrait #title-scores-row {
