@@ -12,9 +12,9 @@ from . import constants as C
 def daily_seed(now=None) -> tuple:
     """(date_str, seed) for today's daily challenge. UTC date so every player
     shares the same dungeon on the same calendar day. Uses a portable
-    sha256 of the date (NOT Python's salted hash()) so the desktop app and
-    the web build (which runs this same function under Pyodide) derive the
-    exact same seed. Seed is a positive int in the same range GameState mints."""
+    sha256 of the date (NOT Python's salted hash(), which varies run to
+    run) so every player deriving this independently gets the exact same
+    seed. Seed is a positive int in the same range GameState mints."""
     dt = now or datetime.now(timezone.utc)
     date_str = dt.strftime("%Y-%m-%d")
     digest = hashlib.sha256(date_str.encode("utf-8")).hexdigest()

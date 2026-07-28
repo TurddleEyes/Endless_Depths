@@ -363,9 +363,8 @@ def _kit_for(monster) -> Optional[BossKit]:
 
 def boss_status_text(boss_state: dict) -> str:
     """Human-readable nameplate status ("stirring...", "awakening in N...",
-    "Phase X") derived from a boss's boss_state. Single source of truth for
-    both front-ends (ui/app.py, web via webbridge.py's _boss_info) so the
-    wording can't drift between the desktop and web renderers."""
+    "Phase X") derived from a boss's boss_state. Single source of truth
+    (read via webbridge.py's _boss_info) so the wording lives in one place."""
     if not boss_state.get("awakened", False):
         countdown = boss_state.get("awaken_countdown")
         return f"awakening in {countdown}..." if countdown else "stirring..."

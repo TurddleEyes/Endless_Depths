@@ -1,9 +1,8 @@
 """Depth-banded visual theme + a couple of hazard trap kinds, layered on
 top of the M2 status-effect system (engine/status.py). A biome is a pure
-function of depth alone - no rng, no GameState - so both front-ends (and
-dungeon generation) derive the identical biome from depth with nothing to
-thread through: desktop reads depth directly, web gets it for free since
-depth is already part of every floor payload.
+function of depth alone - no rng, no GameState - so dungeon generation and
+the web build derive the identical biome from depth with nothing to
+thread through: depth is already part of every floor payload.
 """
 from __future__ import annotations
 

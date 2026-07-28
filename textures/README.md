@@ -2,14 +2,14 @@
 
 Every PNG here overrides one built-in sprite; the file's NAME (not its
 folder) is the sprite it replaces. Edit with any image editor, save, and
-restart the game (browser: hard refresh). Delete a file - or this whole
-folder - to get the built-in art back. A broken or wrong-size file is
-skipped with a console warning, never a crash.
+hard-refresh the page. Delete a file - or this whole folder - to get the
+built-in art back. A broken or wrong-size file is skipped with a console
+warning, never a crash.
 
 ## Rules
 
 - Sizes allowed: 16x16 (auto-upscaled), 32x32 (native), or 64x64
-  (HD - full detail in the browser, downscaled on desktop).
+  (HD - full detail, used natively).
 - Transparency: use a real alpha channel. Pixels with alpha < 128 are
   treated as fully transparent.
 - Save as a normal non-interlaced PNG (every editor's default).

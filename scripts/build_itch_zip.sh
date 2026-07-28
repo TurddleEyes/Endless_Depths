@@ -34,13 +34,13 @@ done
 # Authoritative set of files the web build needs. Paths are relative to
 # REPO_ROOT and reused verbatim as the zip's internal paths.
 #
-# Deliberately excluded: game.py, ui/app.py, ui/sprites.py, ui/theme.py,
-# ui/widgets.py (desktop-tkinter only), assets/ (desktop wav cache,
-# regenerated at runtime, gitignored), save.json/settings.json/
-# highscores.json (local dev state), scripts/, .git, __pycache__/,
-# .nojekyll, README.md. (GUIDE.html USED to be excluded as an unlinked
-# standalone manual, but the title menu's "How to Play" button now opens it,
-# so it ships with the runnable game - listed in FILES below.)
+# Deliberately excluded: assets/ (desktop wav cache, regenerated at
+# runtime, gitignored - a leftover of the now-removed tkinter front-end),
+# save.json/settings.json/highscores.json (local dev state), scripts/,
+# .git, __pycache__/, .nojekyll, README.md. (GUIDE.html USED to be
+# excluded as an unlinked standalone manual, but the title menu's "How to
+# Play" button now opens it, so it ships with the runnable game - listed
+# in FILES below.)
 FILES=(
     index.html
     GUIDE.html

@@ -1,5 +1,5 @@
-"""Shared flavor text for the lore/intro screen. Plain data, no UI toolkit
-dependency - used by both the tkinter desktop build and the browser build.
+"""Flavor text for the lore/intro screen. Plain data, no UI toolkit
+dependency - read directly by the browser build.
 """
 
 TITLE = "ENDLESS DEPTHS"

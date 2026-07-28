@@ -1,7 +1,7 @@
 """Pixel-art sprite data: grids of palette characters ('.' = transparent).
 
-Pure data + helpers, no tkinter - shared by the desktop renderer
-(ui/sprites.py) and the browser build (web/webbridge.py).
+Pure data + helpers, no tkinter - read directly by the browser build
+(web/webbridge.py exposes it via sprite_atlas_json()).
 
 Sprites are AUTHORED at 16x16 (_SRC_PX) and SHIPPED at 32x32 (SPRITE_PX):
 every grid is doubled once, at import time, through Scale2x (EPX) - the
@@ -1381,8 +1381,8 @@ DIM_TILES = tuple(
      "decor_bones", "decor_rubble", "decor_moss")
 DIM_FACTOR = 0.45
 
-# Deterministic per-tile texture variation, shared by both renderers so the
-# desktop and browser builds draw identical dungeons.
+# Deterministic per-tile texture variation, so re-rendering the same floor
+# always draws identically.
 FLOOR_VARIANTS = ("floor", "floor2", "floor3")
 WALL_VARIANTS = ("wall", "wall2")
 

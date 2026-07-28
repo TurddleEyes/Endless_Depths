@@ -1,1 +1,1 @@
-"""Tkinter presentation layer. Only place in this project that imports tkinter."""
+"""UI-toolkit-free helpers shared by the browser front-end (web/webbridge.py)."""

@@ -5,11 +5,9 @@ music, and sound effects all generated from code, written in pure Python
 with zero external dependencies. Everything here is hand-rolled: the
 engine, the pixel art, the music synthesizer, the works.
 
-Playable two ways:
-
-- **In the browser** (GitHub Pages + [Pyodide](https://pyodide.org)) — the
-  same Python engine runs as WebAssembly
-- **On the desktop** (Python + tkinter)
+Playable in the browser — [GitHub Pages](https://turddleeyes.github.io/Endless_Depths/)
+running the Python engine as WebAssembly via [Pyodide](https://pyodide.org),
+no install required.
 
 ## Features
 
@@ -39,14 +37,12 @@ Playable two ways:
   (pause, 2x speed, skip to end) - replays are bit-exact because all game
   randomness flows from one seed
 
-## Play in the browser
-
 ### Controls
 
 | Key | Action |
 | --- | --- |
 | Arrows / WASD | Move / attack (bump into monsters) |
-| Mouse click | Auto-walk to the clicked tile (browser version) |
+| Mouse click | Auto-walk to the clicked tile |
 | E | Inventory |
 | . or Z | Wait a turn |
 | M | Toggle sound |
@@ -70,10 +66,9 @@ it.
 
 ```
 engine/     headless game logic - no UI imports, fully testable
-ui/         desktop tkinter front-end (spritedata.py + iteminfo.py + audio.py
-            are UI-toolkit-free and shared with the web build)
+ui/         UI-toolkit-free helpers shared with the web build (spritedata.py,
+            iteminfo.py, audio.py, lore.py, texturepack.py)
 web/        browser front-end: webbridge.py (JSON API run in Pyodide),
             main.js (canvas renderer), style.css
-index.html  entry point for the browser version
-game.py     entry point for the desktop version
+index.html  entry point
 ```

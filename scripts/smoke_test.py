@@ -1236,30 +1236,19 @@ def test_wait_and_events():
 
 
 def test_audio_generation():
-    """ui.audio is tkinter-free, so its synth can be verified headlessly."""
+    """ui.audio has no dependencies beyond the stdlib, so its synth can be
+    verified headlessly - every builder must produce valid, non-empty WAV
+    bytes at the shared sample rate."""
+    import io
     import wave as wave_module
-    from ui.audio import AudioManager, SFX_BUILDERS, MUSIC_BUILDERS
+    from ui.audio import SFX_BUILDERS, MUSIC_BUILDERS, SAMPLE_RATE
 
-    cache = os.path.join(os.environ.get("TMPDIR", "/tmp"), "roguelike_audio_test")
-    am = AudioManager(cache_dir=cache, muted=True, autostart=False)
-    am.generate_all()
     names = list(SFX_BUILDERS) + list(MUSIC_BUILDERS)
-    for name in names:
-        path = am._path(name)
-        assert os.path.exists(path), f"missing wav for {name}"
-        with wave_module.open(path, "rb") as f:
+    for name, builder in list(SFX_BUILDERS.items()) + list(MUSIC_BUILDERS.items()):
+        raw = builder().wav_bytes()
+        with wave_module.open(io.BytesIO(raw), "rb") as f:
             assert f.getnframes() > 0, f"{name} wav is empty"
-            assert f.getframerate() == 22050
-    # Cleanup
-    for name in names:
-        try:
-            os.remove(am._path(name))
-        except OSError:
-            pass
-    try:
-        os.rmdir(cache)
-    except OSError:
-        pass
+            assert f.getframerate() == SAMPLE_RATE
     print(f"OK: all {len(names)} audio files synthesize as valid WAVs")
 
 

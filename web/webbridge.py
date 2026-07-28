@@ -68,9 +68,8 @@ def category_labels_json() -> str:
 
 def export_texture_pack_b64() -> str:
     """The built-in art, packaged the same way scripts/export_textures.py
-    and the desktop "Export Texture Pack" button do (a STORED-only zip),
-    base64-encoded so it can cross the Pyodide/JS boundary as a string for
-    the web "Export Texture Pack" download button."""
+    does (a STORED-only zip), base64-encoded so it can cross the Pyodide/JS
+    boundary as a string for the "Export Texture Pack" download button."""
     return base64.b64encode(texturepack_module.build_pack_zip_bytes()).decode("ascii")
 
 
@@ -114,10 +113,10 @@ def achievements_defs_json() -> str:
 
 
 def check_achievement_unlocks_json(ctx_json: str, unlocked_json: str) -> str:
-    """Pure achievement-check pass-through for the web build, which persists
-    unlocks in localStorage rather than a file (engine/save.py owns that
-    side for desktop) - JS supplies its own run-summary ctx and already-
-    unlocked id list, gets back the newly-earned entries to merge in."""
+    """Pure achievement-check pass-through - the web build persists unlocks
+    in localStorage rather than a file, so JS supplies its own run-summary
+    ctx and already-unlocked id list, and gets back the newly-earned
+    entries to merge in."""
     ctx = json.loads(ctx_json)
     unlocked = set(json.loads(unlocked_json))
     newly = achievements_module.check_unlocks(ctx, unlocked)
@@ -142,8 +141,8 @@ def synth_wav_b64(name: str) -> str:
 # Game lifecycle
 # ----------------------------------------------------------------------
 def daily_seed_json() -> str:
-    """Today's daily-challenge (date, seed). Same engine helper the desktop
-    uses, so both front-ends and every player get the same dungeon per day."""
+    """Today's daily-challenge (date, seed) - a portable hash so every
+    player gets the same dungeon per day regardless of platform."""
     date_str, seed = _daily_seed()
     return json.dumps({"date": date_str, "seed": seed})
 

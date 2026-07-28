@@ -1,25 +1,19 @@
 """Procedural chiptune audio: synthesizes all music and sound effects into
-WAV files at first launch (cached under assets/), then plays them through
-whatever command-line audio player the system provides (paplay, pw-play,
-aplay, ffplay, play). Pure stdlib - no tkinter, no external packages.
+WAV bytes from pure math (additive square/triangle/saw/sine/noise synth),
+no asset files. Pure stdlib, no external packages.
 
-Set ENDLESS_DEPTHS_NO_AUDIO=1 to disable the whole subsystem (used by the
-headless test harness).
+The browser build plays these directly (web/webbridge.py's
+synth_wav_b64() base64-encodes Buffer.wav_bytes() for the JS Audio API to
+play) - this module only ever generates the bytes, never plays them itself.
 """
 from __future__ import annotations
 
 import array
 import math
-import os
 import random
-import shutil
-import subprocess
-import sys
-import threading
 import wave
 
 SAMPLE_RATE = 22050
-AUDIO_VERSION = 3
 
 _TWO_PI = 2.0 * math.pi
 
@@ -85,10 +79,6 @@ class Buffer:
             f.setframerate(SAMPLE_RATE)
             f.writeframes(samples.tobytes())
         return buf.getvalue()
-
-    def write(self, path: str):
-        with open(path, "wb") as f:
-            f.write(self.wav_bytes())
 
 
 # ----------------------------------------------------------------------
@@ -689,151 +679,3 @@ def track_for_depth(depth: int, boss_alive: bool = False) -> str:
         return "boss"
     return TRACK_ROTATION[((max(1, depth) - 1) // 3) % len(TRACK_ROTATION)]
 
-
-# ----------------------------------------------------------------------
-# Manager
-# ----------------------------------------------------------------------
-class AudioManager:
-    def __init__(self, cache_dir: str, muted: bool = False, autostart: bool = True,
-                  music_on: bool = True, sfx_on: bool = True):
-        self.cache_dir = cache_dir
-        self.music_on = music_on and not muted
-        self.sfx_on = sfx_on and not muted
-        self.disabled = os.environ.get("ENDLESS_DEPTHS_NO_AUDIO") == "1"
-        self.ready = False
-        self._player_cmd = None if self.disabled else self._detect_player()
-        self._music_proc = None
-        self._want_music = None
-        self._sfx_procs: list = []
-        if not self.disabled and autostart:
-            threading.Thread(target=self.generate_all, daemon=True).start()
-
-    @property
-    def muted(self) -> bool:
-        """Master-mute view over the two channel toggles."""
-        return not (self.music_on or self.sfx_on)
-
-    @staticmethod
-    def _detect_player():
-        if sys.platform == "win32":
-            return None  # winsound handled separately in play()
-        candidates = [
-            ["paplay"],
-            ["pw-play"],
-            ["aplay", "-q"],
-            ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet"],
-            ["play", "-q"],
-            ["afplay"],
-        ]
-        for cmd in candidates:
-            if shutil.which(cmd[0]):
-                return cmd
-        return None
-
-    def _path(self, name: str) -> str:
-        return os.path.join(self.cache_dir, f"{name}_v{AUDIO_VERSION}.wav")
-
-    def generate_all(self):
-        """Synthesize every missing WAV into the cache dir (idempotent)."""
-        os.makedirs(self.cache_dir, exist_ok=True)
-        suffix = f"_v{AUDIO_VERSION}.wav"
-        for fname in os.listdir(self.cache_dir):
-            if fname.endswith(".wav") and not fname.endswith(suffix):
-                try:
-                    os.remove(os.path.join(self.cache_dir, fname))
-                except OSError:
-                    pass
-        for name, builder in list(SFX_BUILDERS.items()) + list(MUSIC_BUILDERS.items()):
-            path = self._path(name)
-            if not os.path.exists(path):
-                builder().write(path)
-        self.ready = True
-
-    def _base_ok(self) -> bool:
-        return not self.disabled and self.ready
-
-    def play(self, name: str):
-        if not self._base_ok() or not self.sfx_on or name not in SFX_BUILDERS:
-            return
-        path = self._path(name)
-        if sys.platform == "win32":
-            try:
-                import winsound
-                winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
-            except Exception:
-                pass
-            return
-        if not self._player_cmd:
-            return
-        self._reap()
-        try:
-            proc = subprocess.Popen(self._player_cmd + [path],
-                                     stdout=subprocess.DEVNULL,
-                                     stderr=subprocess.DEVNULL)
-            self._sfx_procs.append(proc)
-        except OSError:
-            pass
-
-    def play_music(self, name):
-        """Set the looping background track (None = stop music)."""
-        self._want_music = name
-        if name is None or not self.music_on:
-            self._stop_music_proc()
-            return
-        self.tick()
-
-    def tick(self):
-        """Call periodically: reaps finished SFX and keeps music looping."""
-        self._reap()
-        if self.disabled or sys.platform == "win32":
-            return
-        if self._want_music and self._base_ok() and self.music_on and self._player_cmd:
-            if self._music_proc is None or self._music_proc.poll() is not None:
-                try:
-                    self._music_proc = subprocess.Popen(
-                        self._player_cmd + [self._path(self._want_music)],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                except OSError:
-                    self._music_proc = None
-
-    def set_muted(self, muted: bool):
-        """Master mute: flips both channels together (the M key)."""
-        self.music_on = not muted
-        self.sfx_on = not muted
-        if muted:
-            self._stop_music_proc()
-        else:
-            self.tick()
-
-    def set_music(self, on: bool):
-        self.music_on = on
-        if not on:
-            self._stop_music_proc()
-        else:
-            self.tick()
-
-    def set_sfx(self, on: bool):
-        self.sfx_on = on
-
-    def _stop_music_proc(self):
-        if self._music_proc and self._music_proc.poll() is None:
-            try:
-                self._music_proc.terminate()
-            except OSError:
-                pass
-        self._music_proc = None
-
-    def _reap(self):
-        self._sfx_procs = [p for p in self._sfx_procs if p.poll() is None]
-
-    def shutdown(self):
-        self._stop_music_proc()
-        for p in self._sfx_procs:
-            if p.poll() is None:
-                try:
-                    p.terminate()
-                except OSError:
-                    pass
-        self._sfx_procs = []

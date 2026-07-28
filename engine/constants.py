@@ -72,7 +72,7 @@ RARITIES = [
     ("legendary", 4.5, 1, "#e0a83a"),
 ]
 
-# --- Colors (tkinter hex) ---------------------------------------------
+# --- Colors (hex) -------------------------------------------------------
 COLOR_WALL = "#2b2b33"
 COLOR_WALL_DIM = "#17171b"
 COLOR_FLOOR = "#4a4a55"

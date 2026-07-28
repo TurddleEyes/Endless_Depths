@@ -8,16 +8,18 @@ back to the built-in art, so a partial or broken pack never breaks the
 game.
 
 Toolkit-free and dependency-free (zlib + struct only, no PIL) - shared by
-the desktop renderer (ui/sprites.py), the export script
-(scripts/export_textures.py) and the headless tests. The browser build
-does NOT import this module: it decodes PNGs natively in JS using the
-manifest.json the export script writes.
+the export script (scripts/export_textures.py), the headless tests, and
+the browser build itself (shipped in PY_FILES) for the Export/Import
+Texture Pack buttons' build_pack_zip_bytes()/extract_pack_zip_bytes(). The
+browser's own sprite rendering decodes PNGs natively in JS instead, using
+the manifest.json this module writes.
 
 Accepted PNG sizes per sprite:
     16x16 - treated as authoring resolution, auto-upscaled via Scale2x
     32x32 - native shipped resolution
     64x64 - HD; used natively in the browser, nearest-downsampled to 32
-            on desktop (tk needs integer zoom factors)
+            for for_desktop=True callers (kept for any future integer-zoom
+            consumer; nothing in this repo currently passes it)
 Anything else is rejected with a warning and the built-in art is used.
 
 Pixels are RGBA tuples; alpha < 128 counts as transparent.
@@ -213,7 +215,7 @@ def scale2x_px(rows):
 
 
 def downsample2x_px(rows):
-    """Nearest-neighbor 2x downsample (64 -> 32 for the desktop renderer)."""
+    """Nearest-neighbor 2x downsample (64 -> 32, for_desktop=True callers)."""
     return [row[::2] for row in rows[::2]]
 
 
@@ -324,14 +326,16 @@ def grid_to_px(grid, palette):
 # ----------------------------------------------------------------------
 # Pack loading
 # ----------------------------------------------------------------------
-IMPORTED_PACK_DIRNAME = "imported_textures"  # desktop's "Import Texture Pack" target
+IMPORTED_PACK_DIRNAME = "imported_textures"  # an extracted .edtp import target
 
 
 def pack_root() -> str:
-    """Priority: the env override (test/power-user), then a desktop-
-    imported pack (imported_textures/ - see ui/app.py's Import Texture Pack
-    button, which extracts a .edtp here so it survives app restarts with no
-    extra settings.json bookkeeping), then the default textures/ folder."""
+    """Priority: the env override (test/power-user), then an imported pack
+    (imported_textures/, an extracted .edtp - see extract_pack_zip_bytes),
+    then the default textures/ folder. Nothing in this repo currently
+    calls load_pack()/pack_root() from a live front-end (the browser build
+    decodes texture packs natively in JS instead) - this chain exists for
+    any future Python-side consumer and is covered by the headless tests."""
     override = os.environ.get(PACK_ENV)
     if override:
         return override
@@ -415,9 +419,10 @@ def load_pack(root: str | None = None, for_desktop: bool = True):
 # always produced (one PNG per sprite under tiles/monsters/items/traps/
 # decor/misc/, hero pieces under hero/, manifest.json + README.md), but as
 # pure in-memory bytes so it can run identically under Pyodide (the web
-# build's "Export Texture Pack" button) and desktop, with the CLI script
+# build's "Export Texture Pack" button) and the CLI script, which is
 # reduced to a thin wrapper around write_pack_to_dir(). See
-# build_pack_zip_bytes() for the .edtp download both front-ends use.
+# build_pack_zip_bytes() for the .edtp download the web build's Export
+# button uses.
 # ----------------------------------------------------------------------
 _TILE_KEYS = {"floor", "floor2", "floor3", "wall", "wall2", "stairs",
               "door_rune", "door_boss", "chest", "block", "lever_up",
@@ -440,9 +445,9 @@ def category_for_key(key: str) -> str:
 
 def build_pack_files() -> dict:
     """Every file a fresh vanilla pack contains, as {relative_path: png/
-    text bytes} - the single source of truth write_pack_to_dir() (CLI/
-    desktop, writes real files) and build_pack_zip_bytes() (both front-
-    ends' Export button, zips in memory) both build from."""
+    text bytes} - the single source of truth write_pack_to_dir() (CLI,
+    writes real files) and build_pack_zip_bytes() (the web build's Export
+    button, zips in memory) both build from."""
     files: dict = {}
 
     # Every shipped sprite (already 32x32 post-Scale2x).
@@ -518,7 +523,7 @@ def write_pack_to_dir(root: str, force: bool = False) -> dict:
     """Writes build_pack_files()'s output to real files under `root`,
     never overwriting an existing file unless force=True (hand-edited
     textures survive re-running the export after a game update). Used by
-    scripts/export_textures.py and desktop's own export path."""
+    scripts/export_textures.py."""
     written, kept = [], []
     files = build_pack_files()
     for rel, data in files.items():
@@ -537,7 +542,7 @@ def write_pack_to_dir(root: str, force: bool = False) -> dict:
 
 
 def build_pack_zip_bytes() -> bytes:
-    """The .edtp download both front-ends' Export Texture Pack button
+    """The .edtp download the web build's Export Texture Pack button
     produces - a STORED (uncompressed) zip of build_pack_files()'s output.
     STORED-only is deliberate: it lets the web build's Import path parse
     the zip's central directory and read raw bytes directly in JS, with no
@@ -552,8 +557,9 @@ def build_pack_zip_bytes() -> bytes:
 
 def extract_pack_zip_bytes(data: bytes, root: str) -> None:
     """Extracts a .edtp's ZIP content into `root`, replacing anything
-    already there - used by desktop's Import Texture Pack (the web build
-    parses the zip client-side in JS instead, no Python round-trip)."""
+    already there. Currently unreachable from any live front-end (the web
+    build parses the zip client-side in JS instead, no Python round-trip) -
+    kept for any future Python-side importer and covered by the tests."""
     import io as _io
     import shutil
     import zipfile
@@ -567,8 +573,8 @@ def extract_pack_zip_bytes(data: bytes, root: str) -> None:
 def reload_pack(root: str | None, for_desktop: bool = True) -> list:
     """Re-scans `root` (or the default pack_root()) and returns the fresh
     (sprites, hero, warnings) tuple - the same shape load_pack() returns.
-    Callers (ui/sprites.py's set_active_pack) are responsible for actually
-    swapping the module-level caches; this function is pure."""
+    Pure: a caller wanting to hot-swap a pack mid-session is responsible
+    for actually replacing its own cached sprites with the result."""
     return load_pack(root=root, for_desktop=for_desktop)
 
 
@@ -577,14 +583,14 @@ def _readme(manifest: dict) -> str:
 
 Every PNG here overrides one built-in sprite; the file's NAME (not its
 folder) is the sprite it replaces. Edit with any image editor, save, and
-restart the game (browser: hard refresh). Delete a file - or this whole
-folder - to get the built-in art back. A broken or wrong-size file is
-skipped with a console warning, never a crash.
+hard-refresh the page. Delete a file - or this whole folder - to get the
+built-in art back. A broken or wrong-size file is skipped with a console
+warning, never a crash.
 
 ## Rules
 
 - Sizes allowed: 16x16 (auto-upscaled), 32x32 (native), or 64x64
-  (HD - full detail in the browser, downscaled on desktop).
+  (HD - full detail, used natively).
 - Transparency: use a real alpha channel. Pixels with alpha < 128 are
   treated as fully transparent.
 - Save as a normal non-interlaced PNG (every editor's default).

@@ -1,10 +1,10 @@
 """Puzzle generation and logic - the sealed rune doors of the depths.
 
 On a puzzle floor the stairs tile is replaced by a sealed door; the puzzle
-must be solved to dissolve it. All logic lives here, engine-side: the UIs
-are dumb renderers of view() dicts and feed back nothing but button indices
-(via GameState.puzzle_input, a recorded action), so desktop, web and replay
-playback all behave identically.
+must be solved to dissolve it. All logic lives here, engine-side: the UI
+is a dumb renderer of view() dicts and feeds back nothing but button
+indices (via GameState.puzzle_input, a recorded action), so the web build
+and replay playback behave identically.
 
 A puzzle is a plain dict. Common fields:
     kind, difficulty, reward, solved, attempts, feedback, title, prompt

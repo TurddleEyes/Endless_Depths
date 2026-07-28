@@ -1,12 +1,12 @@
 """Achievement definitions - milestone checks over a finished run's stats.
-Pure data + pure check functions; front-ends own the actual persistence
-(engine/save.py's achievements.json on desktop, localStorage on web) and UI.
+Pure data + pure check functions; the web build owns the actual
+persistence (localStorage) and UI.
 
-A run-summary `ctx` dict is whatever the front-end can readily put
-together at run-end - see save.py's record_run_history call sites for the
-shape both front-ends already build for run history, which this reuses:
-depth_reached, level, gold, kills, mode, finished, is_daily, plus two
-GameState-tracked extras (breeds_seen, boss_kills).
+A run-summary `ctx` dict is whatever the web build can readily put
+together at run-end - see main.js's recordHistory call sites for the
+shape already built for run history, which this reuses: depth_reached,
+level, gold, kills, mode, finished, is_daily, plus two GameState-tracked
+extras (breeds_seen, boss_kills).
 """
 from __future__ import annotations
 

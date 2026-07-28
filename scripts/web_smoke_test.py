@@ -59,9 +59,9 @@ def test_monster_sprite_completeness():
 def test_biome_sprite_completeness():
     """Every biome's sprite-key suffix (engine/biomes.py) must resolve to a
     real floor/floor2/floor3/wall/wall2 sprite AND have a DIM_TILES entry -
-    both renderers append the suffix blind (ui/app.py _tile_sprite_key,
-    web/main.js's render()), so a missing one would KeyError mid-render
-    instead of falling back to anything."""
+    the renderer (web/main.js's render()) appends the suffix blind, so a
+    missing one would KeyError mid-render instead of falling back to
+    anything."""
     from engine.biomes import BIOMES
     from ui.spritedata import SPRITE_DEFS, DIM_TILES, TRAP_KEYS, SPRITE_PX
 
