@@ -889,11 +889,22 @@ body.portrait button { min-width: 180px; }
 body.portrait .dpad-btn,
 body.portrait .touch-btn,
 body.portrait .puzzle-btn,
-body.portrait .overlay-buttons button {
+body.portrait .overlay-buttons button,
+body.portrait .menu-btn-sm,
+body.portrait .icon-btn {
   min-width: 0;
 }
+/* .icon-btn's fixed 44px square (not just "not 180px") needs restating
+   explicitly too - min-width:0 alone would let it collapse to fit content
+   instead of staying a consistent tap target. */
+body.portrait .icon-btn { width: 44px; }
 
 body.portrait .screen h1 { margin-top: 4px; }
+/* The title screen's content is shorter now than the fixed 1600px-tall
+   portrait stage expects (post-declutter, fewer/smaller button rows) -
+   center it instead of pinning to the top, so the leftover space reads
+   as deliberate framing instead of a dead void under the scores. */
+body.portrait #title-screen { display: flex; flex-direction: column; justify-content: center; }
 body.portrait #title-scores-row {
   flex-direction: column;
   align-items: center;
